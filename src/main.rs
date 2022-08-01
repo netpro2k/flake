@@ -1,7 +1,9 @@
 use core::fmt;
+use std::thread;
+use std::time;
 use std::{
     fs::File,
-    io::{stdin, BufReader, Read},
+    io::{stdin, stdout, BufReader, Read, Write},
 };
 
 struct Chip8 {
@@ -11,6 +13,7 @@ struct Chip8 {
     pc: usize,
     i: u16,
     stack: Vec<usize>,
+    mode: Modes,
 }
 
 impl fmt::Debug for Chip8 {
@@ -36,25 +39,55 @@ PC: {:#06x}
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Modes {
+    Chip8,
+    Chip48,
+    SuperChip,
+}
+
 #[derive(Debug)]
 enum OpCodes {
     NOOP,
     CLS,
+    RET,
     JMP(usize),
     CALL(usize),
-    RET,
-    LD(usize, u8),
-    ADD(usize, u8),
-    LDI(u16),
-    DRAW(usize, usize, u16),
     SE(usize, u8),
     SNE(usize, u8),
     SEV(usize, usize),
+    LdVxNn(usize, u8),
+    ADD(usize, u8),
+    LDV(usize, usize),
+    ORV(usize, usize),
+    ANDV(usize, usize),
+    XORV(usize, usize),
+    ADDV(usize, usize),
+    SUBV(usize, usize),
+    SHRV(usize, usize),
+    SUBNV(usize, usize),
+    SHLV(usize, usize),
     SNEV(usize, usize),
+    LDI(u16),
+    // JmpVoNn(u16),
+    // RndVxNn,
+    DRAW(usize, usize, u16),
+    // SkpVx,
+    // SknpVx,
+    // LdVxDt,
+    LdVxK(usize),
+    // LdDtVx,
+    // LdStVx,
+    // AddIVx,
+    // LdFVx,
+    LDBV(usize),
+    // LdVVx,
+    LDIV(usize),
+    LDVI(usize),
 }
 
 impl TryFrom<u16> for OpCodes {
-    type Error = ();
+    type Error = String;
 
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         match v {
@@ -63,7 +96,7 @@ impl TryFrom<u16> for OpCodes {
             0x00E0 => Ok(OpCodes::CLS),
             v if v & 0xF000 == 0x1000 => Ok(OpCodes::JMP((v & 0x0FFF) as usize)),
             v if v & 0xF000 == 0x2000 => Ok(OpCodes::CALL((v & 0x0FFF) as usize)),
-            v if v & 0xF000 == 0x6000 => Ok(OpCodes::LD(
+            v if v & 0xF000 == 0x6000 => Ok(OpCodes::LdVxNn(
                 ((v & 0x0F00) >> 8) as usize,
                 (v & 0x00FF) as u8,
             )),
@@ -89,12 +122,55 @@ impl TryFrom<u16> for OpCodes {
                 ((v & 0x0F00) >> 8).try_into().unwrap(),
                 ((v & 0x00F0) >> 4).try_into().unwrap(),
             )),
-            v if v & 0xF000 == 0x9000 => Ok(OpCodes::SNEV(
+
+            v if v & 0xF00F == 0x8000 => Ok(OpCodes::LDV(
                 ((v & 0x0F00) >> 8).try_into().unwrap(),
                 ((v & 0x00F0) >> 4).try_into().unwrap(),
             )),
+            v if v & 0xF00F == 0x8001 => Ok(OpCodes::ORV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8002 => Ok(OpCodes::ANDV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8003 => Ok(OpCodes::XORV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8004 => Ok(OpCodes::ADDV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8005 => Ok(OpCodes::SUBV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8006 => Ok(OpCodes::SHRV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x8007 => Ok(OpCodes::SUBNV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x800E => Ok(OpCodes::SHLV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF00F == 0x9000 => Ok(OpCodes::SNEV(
+                ((v & 0x0F00) >> 8).try_into().unwrap(),
+                ((v & 0x00F0) >> 4).try_into().unwrap(),
+            )),
+            v if v & 0xF0FF == 0xF055 => Ok(OpCodes::LDIV(((v & 0x0F00) >> 8).try_into().unwrap())),
+            v if v & 0xF0FF == 0xF065 => Ok(OpCodes::LDVI(((v & 0x0F00) >> 8).try_into().unwrap())),
+            v if v & 0xF0FF == 0xF00A => {
+                Ok(OpCodes::LdVxK(((v & 0x0F00) >> 8).try_into().unwrap()))
+            }
+            v if v & 0xF0FF == 0xF033 => Ok(OpCodes::LDBV(((v & 0x0F00) >> 8).try_into().unwrap())),
 
-            _ => Err(()),
+            _ => Err(format!("Op code not implemented for {:#06x}", v)),
         }
     }
 }
@@ -107,9 +183,10 @@ fn main() -> std::io::Result<()> {
         i: 0,
         display: [false; 64 * 32],
         stack: vec![],
+        mode: Modes::Chip8,
     };
 
-    let mut file = File::open("roms/test_opcode.ch8")?;
+    let mut file = File::open("roms/breakout.ch8")?;
     file.read(&mut c.memory[0x200..])
         .expect("Failed to read file");
 
@@ -118,24 +195,19 @@ fn main() -> std::io::Result<()> {
             u16::from_be_bytes(c.memory[c.pc..c.pc + 2].try_into().unwrap());
         c.pc += 2;
 
-        print!("{:#06x} ", next_instruction);
-
-        // match next_instruction.try_into().unwrap() {
-        match OpCodes::try_from(next_instruction).unwrap() {
+        let op = OpCodes::try_from(next_instruction).unwrap();
+        println!("{:#06x}: {:?}", next_instruction, op);
+        match op {
             OpCodes::CLS => {
-                println!("CLS");
                 c.display.fill(false);
             }
             OpCodes::LDI(n) => {
-                println!("LDI {:#06x}", n);
                 c.i = n;
             }
-            OpCodes::LD(x, n) => {
-                println!("LD {:#06x} {:#06x}", x, n);
+            OpCodes::LdVxNn(x, n) => {
                 c.v[x] = n;
             }
             OpCodes::DRAW(vx, vy, n) => {
-                println!("DRAW {:#06x} {:#06x} {:#06x}", vx, vy, n);
                 c.v[0xf] = 0;
                 let x = c.v[vx] as usize;
                 let y = c.v[vy] as usize;
@@ -152,53 +224,107 @@ fn main() -> std::io::Result<()> {
                 }
             }
             OpCodes::ADD(x, n) => {
-                println!("ADD {:#06x} {:#06x}", x, n);
                 c.v[x] = c.v[x].wrapping_add(n);
             }
             OpCodes::JMP(n) => {
-                println!("JMP {:#06x}", n);
-                c.pc = n.try_into().unwrap();
+                let target = n.try_into().unwrap();
+                if target == c.pc - 2 {
+                    println!("Infinite jump... quitting..");
+                    break;
+                }
+                c.pc = target;
             }
-            OpCodes::NOOP => {
-                println!("NOOP");
-            }
+            OpCodes::NOOP => {}
             OpCodes::SE(x, n) => {
-                println!("SE {:#06x} {:#06x}", x, n);
                 if c.v[x] == n {
                     c.pc += 2;
                 }
             }
             OpCodes::SNE(x, n) => {
-                println!("SNE {:#06x} {:#06x}", x, n);
                 if c.v[x] != n {
                     c.pc += 2;
                 }
             }
             OpCodes::SEV(x, y) => {
-                println!("SNV {:#06x} {:#06x}", x, y);
                 if c.v[x] == c.v[y] {
                     c.pc += 2;
                 }
             }
             OpCodes::SNEV(x, y) => {
-                println!("SNEV {:#06x} {:#06x}", x, y);
                 if c.v[x] != c.v[y] {
                     c.pc += 2;
                 }
             }
             OpCodes::CALL(n) => {
-                println!("JMP {:#06x}", n);
                 c.stack.push(c.pc);
                 c.pc = n;
             }
-            OpCodes::RET => {
-                println!("RET");
-                c.pc = c.stack.pop().unwrap()
+            OpCodes::RET => c.pc = c.stack.pop().unwrap(),
+            OpCodes::LDV(x, y) => {
+                c.v[x] = c.v[y];
+            }
+            OpCodes::ORV(x, y) => {
+                c.v[x] |= c.v[y];
+            }
+            OpCodes::ANDV(x, y) => {
+                c.v[x] &= c.v[y];
+            }
+            OpCodes::XORV(x, y) => {
+                c.v[x] ^= c.v[y];
+            }
+            OpCodes::ADDV(x, y) => {
+                let (result, did_overflow) = c.v[x].overflowing_add(c.v[y]);
+                c.v[x] = result;
+                c.v[0xf] = if did_overflow { 1 } else { 0 };
+            }
+            OpCodes::SUBV(x, y) => {
+                let (result, did_overflow) = c.v[x].overflowing_sub(c.v[y]);
+                c.v[x] = result;
+                c.v[0xf] = if did_overflow { 1 } else { 0 };
+            }
+            OpCodes::SUBNV(x, y) => {
+                let (result, did_overflow) = c.v[y].overflowing_sub(c.v[x]);
+                c.v[x] = result;
+                c.v[0xf] = if did_overflow { 1 } else { 0 };
+            }
+            OpCodes::SHRV(x, y) => {
+                if c.mode == Modes::Chip8 {
+                    c.v[x] = c.v[y];
+                }
+                c.v[0xf] = c.v[x] & 0x01;
+                c.v[x] = c.v[x] >> 1;
+            }
+            OpCodes::SHLV(x, y) => {
+                if c.mode == Modes::Chip8 {
+                    c.v[x] = c.v[y];
+                }
+                c.v[0xf] = c.v[x] & 0x80;
+                c.v[x] = c.v[x] << 1;
+            }
+            OpCodes::LDIV(x) => {
+                for dx in 0..x + 1 {
+                    c.memory[(c.i as usize) + dx] = c.v[dx];
+                }
+            }
+            OpCodes::LDVI(x) => {
+                for dx in 0..x + 1 {
+                    c.v[dx] = c.memory[(c.i as usize) + dx];
+                }
+            }
+            OpCodes::LdVxK(x) => {
+                println!("TODO!");
+            }
+            OpCodes::LDBV(x) => {
+                c.memory[(c.i as usize)] = c.v[x] / 100;
+                c.memory[(c.i as usize) + 1] = (c.v[x] / 10) % 10;
+                c.memory[(c.i as usize) + 2] = c.v[x] % 10;
             }
         }
         println!("{:?}", c);
 
-        stdin().read(&mut [0]).unwrap();
+        // stdin().read(&mut [0]).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
     Ok(())
