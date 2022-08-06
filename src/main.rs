@@ -15,6 +15,7 @@ struct Stage {
     pipeline: Pipeline,
     bindings: Bindings,
     chip: Chip8,
+    size: (i32, i32),
 }
 
 mod chip8;
@@ -28,10 +29,10 @@ impl Stage {
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
-            Vertex { pos : Vec2 { x: -0.5, y: -0.5 }, uv: Vec2 { x: 0., y: 0. } },
-            Vertex { pos : Vec2 { x:  0.5, y: -0.5 }, uv: Vec2 { x: 1., y: 0. } },
-            Vertex { pos : Vec2 { x:  0.5, y:  0.5 }, uv: Vec2 { x: 1., y: 1. } },
-            Vertex { pos : Vec2 { x: -0.5, y:  0.5 }, uv: Vec2 { x: 0., y: 1. } },
+            Vertex { pos : Vec2 { x: -1.0, y: -1.0 }, uv: Vec2 { x: 0., y: 0. } },
+            Vertex { pos : Vec2 { x:  1.0, y: -1.0 }, uv: Vec2 { x: 1., y: 0. } },
+            Vertex { pos : Vec2 { x:  1.0, y:  1.0 }, uv: Vec2 { x: 1., y: 1. } },
+            Vertex { pos : Vec2 { x: -1.0, y:  1.0}, uv: Vec2 { x: 0., y: 1. } },
         ];
         let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
 
@@ -52,8 +53,8 @@ impl Stage {
         );
 
         let bindings = Bindings {
+            index_buffer,
             vertex_buffers: vec![vertex_buffer],
-            index_buffer: index_buffer,
             images: vec![texture],
         };
 
@@ -73,14 +74,19 @@ impl Stage {
             pipeline,
             bindings,
             chip,
+            size: (1200, 600),
         }
     }
 }
 
 impl EventHandler for Stage {
-    fn update(&mut self, _ctx: &mut Context) {
+    fn update(&mut self, ctx: &mut Context) {
         self.chip.tick();
-        self.bindings.images[0].update(_ctx, &self.chip.display)
+        self.bindings.images[0].update(ctx, &self.chip.display)
+    }
+
+    fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) {
+        self.size = (width as i32, height as i32);
     }
 
     fn draw(&mut self, ctx: &mut Context) {
@@ -88,6 +94,13 @@ impl EventHandler for Stage {
 
         ctx.begin_default_pass(Default::default());
 
+        let (width, height) = self.size;
+        if width > 2 * height {
+            ctx.apply_viewport((width - height * 2) / 2, 0, height * 2, height);
+        } else {
+            ctx.apply_viewport(0, (height - width / 2) / 2, width, width / 2);
+        }
+        // ctx.apply_viewport(0, 0, width, height);
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
         // for i in 0..10 {
@@ -123,7 +136,7 @@ mod shader {
     uniform sampler2D tex;
     void main() {
         float c = texture2D(tex, vec2(texcoord.x, 1.0 - texcoord.y)).r;
-        gl_FragColor = vec4(c, c, c, 1.0);
+        gl_FragColor = vec4(c, c, 0.5, 1.0);
     }"#;
 
     pub fn meta() -> ShaderMeta {
@@ -144,6 +157,9 @@ mod shader {
 fn main() {
     miniquad::start(
         conf::Conf {
+            window_title: "Flake".to_string(),
+            window_width: 1200,
+            window_height: 600,
             ..Default::default()
         },
         |mut ctx| Box::new(Stage::new(&mut ctx)),
