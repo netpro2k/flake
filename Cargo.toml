@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 miniquad = "0.3.11"
+rand = "0.8.5"

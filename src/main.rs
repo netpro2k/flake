@@ -24,8 +24,9 @@ use chip8::Chip8;
 impl Stage {
     pub fn new(ctx: &mut Context) -> Stage {
         let mut chip = Chip8::new();
-        chip.load("roms/test_opcode.ch8")
-            .expect("Failed to load file");
+        // chip.load("roms/test_opcode.ch8")
+        //     .expect("Failed to load file");
+        chip.load("roms/breakout.ch8").expect("Failed to load file");
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
@@ -79,14 +80,64 @@ impl Stage {
     }
 }
 
+fn keycode_to_index(keycode: KeyCode) -> Option<usize> {
+    match keycode {
+        KeyCode::Key1 => Some(1),
+        KeyCode::Key2 => Some(2),
+        KeyCode::Key3 => Some(3),
+        KeyCode::Key4 => Some(0xc),
+        KeyCode::Q => Some(4),
+        KeyCode::W => Some(5),
+        KeyCode::E => Some(6),
+        KeyCode::R => Some(0xd),
+        KeyCode::A => Some(7),
+        KeyCode::S => Some(8),
+        KeyCode::D => Some(9),
+        KeyCode::F => Some(0xe),
+        KeyCode::Z => Some(0xa),
+        KeyCode::X => Some(0),
+        KeyCode::C => Some(0xb),
+        KeyCode::V => Some(0xf),
+        _ => None,
+    }
+}
+
 impl EventHandler for Stage {
     fn update(&mut self, ctx: &mut Context) {
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
+        self.chip.tick();
         self.chip.tick();
         self.bindings.images[0].update(ctx, &self.chip.display)
     }
 
     fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) {
         self.size = (width as i32, height as i32);
+    }
+
+    fn key_down_event(
+        &mut self,
+        _ctx: &mut Context,
+        keycode: KeyCode,
+        _keymods: KeyMods,
+        _repeat: bool,
+    ) {
+        if let Some(index) = keycode_to_index(keycode) {
+            self.chip.keys[index] = true;
+        }
+    }
+
+    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymods: KeyMods) {
+        if let Some(index) = keycode_to_index(keycode) {
+            self.chip.keys[index] = false;
+        }
     }
 
     fn draw(&mut self, ctx: &mut Context) {
@@ -148,10 +199,10 @@ mod shader {
         }
     }
 
-    #[repr(C)]
-    pub struct Uniforms {
-        pub offset: (f32, f32),
-    }
+    // #[repr(C)]
+    // pub struct Uniforms {
+    //     pub offset: (f32, f32),
+    // }
 }
 
 fn main() {

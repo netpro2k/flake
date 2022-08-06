@@ -1,17 +1,16 @@
 use core::fmt;
-use std::{
-    fs::File,
-    io::{stdin, BufReader, Read},
-};
+use std::{fs::File, io::Read};
 
 pub struct Chip8 {
     memory: [u8; 4096],
     pub display: [u8; 64 * 32],
     v: [u8; 16],
     pc: usize,
+    st: u8,
     i: u16,
     stack: Vec<usize>,
     mode: Modes,
+    pub keys: [bool; 16],
 }
 
 impl fmt::Debug for Chip8 {
@@ -40,8 +39,8 @@ PC: {:#06x}
 #[derive(Debug, PartialEq, Eq)]
 enum Modes {
     Chip8,
-    Chip48,
-    SuperChip,
+    // Chip48,
+    // SuperChip,
 }
 
 #[derive(Debug)]
@@ -68,16 +67,16 @@ enum OpCodes {
     SNEV(usize, usize),
     LDI(u16),
     // JmpVoNn(u16),
-    // RndVxNn,
+    RndVxNn(usize, u8),
     DRAW(usize, usize, u16),
     // SkpVx,
-    // SknpVx,
+    SknpVx(usize),
     // LdVxDt,
     LdVxK(usize),
     // LdDtVx,
-    // LdStVx,
+    LdStVx(usize),
     // AddIVx,
-    // LdFVx,
+    LdFVx(usize),
     LDBV(usize),
     // LdVVx,
     LDIV(usize),
@@ -103,11 +102,17 @@ impl TryFrom<u16> for OpCodes {
                 (v & 0x00FF) as u8,
             )),
             v if v & 0xF000 == 0xA000 => Ok(OpCodes::LDI(v & 0x0FFF)),
+            v if v & 0xF000 == 0xC000 => Ok(OpCodes::RndVxNn(
+                ((v & 0x0F00) >> 8) as usize,
+                (v & 0x00FF) as u8,
+            )),
             v if v & 0xF000 == 0xD000 => Ok(OpCodes::DRAW(
                 ((v & 0x0F00) >> 8).try_into().unwrap(),
                 ((v & 0x00F0) >> 4).try_into().unwrap(),
                 v & 0x000F,
             )),
+            v if v & 0xF0FF == 0xE0A1 => Ok(OpCodes::SknpVx(((v & 0x0F00) >> 8) as usize)),
+
             v if v & 0xF000 == 0x3000 => Ok(OpCodes::SE(
                 ((v & 0x0F00) >> 8).try_into().unwrap(),
                 (v & 0x00FF) as u8,
@@ -163,10 +168,10 @@ impl TryFrom<u16> for OpCodes {
             )),
             v if v & 0xF0FF == 0xF055 => Ok(OpCodes::LDIV(((v & 0x0F00) >> 8).try_into().unwrap())),
             v if v & 0xF0FF == 0xF065 => Ok(OpCodes::LDVI(((v & 0x0F00) >> 8).try_into().unwrap())),
-            v if v & 0xF0FF == 0xF00A => {
-                Ok(OpCodes::LdVxK(((v & 0x0F00) >> 8).try_into().unwrap()))
-            }
-            v if v & 0xF0FF == 0xF033 => Ok(OpCodes::LDBV(((v & 0x0F00) >> 8).try_into().unwrap())),
+            v if v & 0xF0FF == 0xF00A => Ok(OpCodes::LdVxK(((v & 0x0F00) >> 8) as usize)),
+            v if v & 0xF0FF == 0xF018 => Ok(OpCodes::LdStVx(((v & 0x0F00) >> 8) as usize)),
+            v if v & 0xF0FF == 0xF029 => Ok(OpCodes::LdFVx(((v & 0x0F00) >> 8) as usize)),
+            v if v & 0xF0FF == 0xF033 => Ok(OpCodes::LDBV(((v & 0x0F00) >> 8) as usize)),
 
             _ => Err(format!("Op code not implemented for {:#06x}", v)),
         }
@@ -179,13 +184,36 @@ impl Chip8 {
             memory: [0; 4096],
             v: [0; 16],
             pc: 0x200,
+            st: 0,
             i: 0,
             display: [0; 64 * 32],
             stack: vec![],
             mode: Modes::Chip8,
+            keys: [false; 16],
         }
     }
+
     pub fn load(&mut self, filename: &str) -> Result<(), std::io::Error> {
+        self.memory.fill(0);
+
+        self.memory[0..16 * 5].copy_from_slice(&[
+            0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+            0x20, 0x60, 0x20, 0x20, 0x70, // 1
+            0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+            0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+            0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+            0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+            0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+            0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+            0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+            0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+            0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+            0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+            0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+            0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+            0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+            0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+        ]);
         let mut file = File::open(filename)?;
         file.read(&mut self.memory[0x200..])
             .expect("Failed to read file");
@@ -196,9 +224,14 @@ impl Chip8 {
         let next_instruction: u16 =
             u16::from_be_bytes(self.memory[self.pc..self.pc + 2].try_into().unwrap());
         self.pc += 2;
+        if self.st > 0 {
+            self.st -= 1; // TODO Do this at 60Hz
+        }
 
         let op = OpCodes::try_from(next_instruction).unwrap();
-        println!("{:#06x}: {:?}", next_instruction, op);
+        // println!("{:#06x}: {:?}", next_instruction, op);
+        println!("{:?}", self.keys);
+
         match op {
             OpCodes::CLS => {
                 self.display.fill(0);
@@ -206,16 +239,25 @@ impl Chip8 {
             OpCodes::LDI(n) => {
                 self.i = n;
             }
+            OpCodes::RndVxNn(x, n) => {
+                self.v[x] = n & rand::random::<u8>();
+            }
             OpCodes::LdVxNn(x, n) => {
                 self.v[x] = n;
             }
             OpCodes::DRAW(vx, vy, n) => {
                 self.v[0xf] = 0;
-                let x = self.v[vx] as usize;
-                let y = self.v[vy] as usize;
+                let x = (self.v[vx] as usize) % 64; // wrap
+                let y = (self.v[vy] as usize) % 32; // wrap
                 for dy in 0..n as usize {
+                    if y + dy >= 32 {
+                        break; // clip
+                    }
                     let line: u8 = self.memory[self.i as usize + dy];
                     for dx in 0..8 as usize {
+                        if x + dx >= 64 {
+                            break; // clip
+                        }
                         let loc = x + dx + (y + dy) * 64;
                         let cur = self.display[loc];
                         self.display[loc] ^= if ((0b10000000 >> dx) & line) != 0 {
@@ -227,6 +269,12 @@ impl Chip8 {
                             self.v[0xf] = 1;
                         }
                     }
+                }
+            }
+
+            OpCodes::SknpVx(x) => {
+                if !self.keys[self.v[x] as usize] {
+                    self.pc += 2;
                 }
             }
             OpCodes::ADD(x, n) => {
@@ -318,7 +366,18 @@ impl Chip8 {
                 }
             }
             OpCodes::LdVxK(x) => {
-                println!("TODO!");
+                if let Some(key) = self.keys.iter().position(|&b| b) {
+                    self.v[x] = key as u8;
+                } else {
+                    self.pc -= 2;
+                }
+            }
+            OpCodes::LdStVx(x) => {
+                // buzz!
+                self.st = self.v[x];
+            }
+            OpCodes::LdFVx(x) => {
+                self.i = (self.v[x] * 0x5) as u16;
             }
             OpCodes::LDBV(x) => {
                 self.memory[(self.i as usize)] = self.v[x] / 100;
