@@ -183,9 +183,9 @@ enum Modes {
     // SuperChip,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OpCodes {
-    NOOP,
+    Unkn(u16),
     CLS,                    // CLS — 00E0
     RET,                    // RET — 00EE
     JMP(usize),             // JMP — 1NNN
@@ -227,107 +227,66 @@ impl TryFrom<u16> for OpCodes {
     type Error = String;
 
     fn try_from(v: u16) -> Result<Self, Self::Error> {
-        match v {
-            0x0000 => Ok(OpCodes::NOOP),
-            0x00EE => Ok(OpCodes::RET),
-            0x00E0 => Ok(OpCodes::CLS),
-            v if v & 0xF000 == 0x1000 => Ok(OpCodes::JMP((v & 0x0FFF) as usize)),
-            v if v & 0xF000 == 0xB000 => Ok(OpCodes::JmpV0Nnn((v & 0x0FFF) as usize)),
-            // v if v & 0xF000 == 0xB000 => Ok(OpCodes::JmpVxNnn(
-            //     ((v & 0x0F00) >> 8) as usize,
-            //     (v & 0x0FFF) as usize,
-            // )),
-            v if v & 0xF000 == 0x2000 => Ok(OpCodes::CALL((v & 0x0FFF) as usize)),
-            v if v & 0xF000 == 0x6000 => Ok(OpCodes::LdVxNn(
+        Ok(match v & 0xF000 {
+            0x0000 => match v {
+                0x00EE => OpCodes::RET,
+                0x00E0 => OpCodes::CLS,
+                _ => OpCodes::Unkn(v),
+            },
+            0x1000 => OpCodes::JMP((v & 0x0FFF) as usize),
+            0x2000 => OpCodes::CALL((v & 0x0FFF) as usize),
+            0x3000 => OpCodes::SeVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
+            0x4000 => OpCodes::SneVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
+            0x5000 => OpCodes::SeVxVy(((v & 0x0F00) >> 8) as usize, ((v & 0x00F0) >> 4) as usize),
+            0x6000 => OpCodes::LdVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
+            0x7000 => OpCodes::AddVxNn(((v & 0x0F00) >> 8).try_into().unwrap(), (v & 0x00FF) as u8),
+            0x8000 => match (
+                v & 0xF00F,
                 ((v & 0x0F00) >> 8) as usize,
-                (v & 0x00FF) as u8,
-            )),
-            v if v & 0xF000 == 0x7000 => Ok(OpCodes::AddVxNn(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                (v & 0x00FF) as u8,
-            )),
-            v if v & 0xF000 == 0xA000 => Ok(OpCodes::LdINn(v & 0x0FFF)),
-            v if v & 0xF000 == 0xC000 => Ok(OpCodes::RndVxNn(
-                ((v & 0x0F00) >> 8) as usize,
-                (v & 0x00FF) as u8,
-            )),
-            v if v & 0xF000 == 0xD000 => Ok(OpCodes::DrawVxVyN(
+                ((v & 0x00F0) >> 4) as usize,
+            ) {
+                (0x8000, x, y) => OpCodes::LdVxVy(x, y),
+                (0x8001, x, y) => OpCodes::OrVxVy(x, y),
+                (0x8002, x, y) => OpCodes::AndVxVy(x, y),
+                (0x8003, x, y) => OpCodes::XorVxVy(x, y),
+                (0x8004, x, y) => OpCodes::AddVxVy(x, y),
+                (0x8005, x, y) => OpCodes::SubVxVy(x, y),
+                (0x8006, x, y) => OpCodes::ShrVxVy(x, y),
+                (0x8007, x, y) => OpCodes::SubnVxVy(x, y),
+                (0x800E, x, y) => OpCodes::ShlVxVy(x, y),
+                _ => OpCodes::Unkn(v),
+            },
+            0x9000 => OpCodes::SneVxVy(
                 ((v & 0x0F00) >> 8).try_into().unwrap(),
                 ((v & 0x00F0) >> 4).try_into().unwrap(),
+            ),
+            0xA000 => OpCodes::LdINn(v & 0x0FFF),
+            0xB000 => OpCodes::JmpV0Nnn((v & 0x0FFF) as usize),
+            0xC000 => OpCodes::RndVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
+            0xD000 => OpCodes::DrawVxVyN(
+                ((v & 0x0F00) >> 8) as usize,
+                ((v & 0x00F0) >> 4) as usize,
                 v & 0x000F,
-            )),
-            v if v & 0xF0FF == 0xE09E => Ok(OpCodes::SkpVx(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xE0A1 => Ok(OpCodes::SknpVx(((v & 0x0F00) >> 8) as usize)),
-
-            v if v & 0xF000 == 0x3000 => Ok(OpCodes::SeVxNn(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                (v & 0x00FF) as u8,
-            )),
-            v if v & 0xF000 == 0x4000 => Ok(OpCodes::SneVxNn(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                (v & 0x00FF) as u8,
-            )),
-            v if v & 0xF000 == 0x5000 => Ok(OpCodes::SeVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-
-            v if v & 0xF00F == 0x8000 => Ok(OpCodes::LdVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8001 => Ok(OpCodes::OrVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8002 => Ok(OpCodes::AndVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8003 => Ok(OpCodes::XorVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8004 => Ok(OpCodes::AddVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8005 => Ok(OpCodes::SubVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8006 => Ok(OpCodes::ShrVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x8007 => Ok(OpCodes::SubnVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x800E => Ok(OpCodes::ShlVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF00F == 0x9000 => Ok(OpCodes::SneVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            )),
-            v if v & 0xF0FF == 0xF015 => Ok(OpCodes::LdDtVx(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF055 => {
-                Ok(OpCodes::LdIVx(((v & 0x0F00) >> 8).try_into().unwrap()))
-            }
-            v if v & 0xF0FF == 0xF065 => {
-                Ok(OpCodes::LdVxI(((v & 0x0F00) >> 8).try_into().unwrap()))
-            }
-            v if v & 0xF0FF == 0xF007 => Ok(OpCodes::LdVxDt(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF00A => Ok(OpCodes::LdVxK(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF018 => Ok(OpCodes::LdStVx(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF029 => Ok(OpCodes::LdFVx(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF033 => Ok(OpCodes::LdBVx(((v & 0x0F00) >> 8) as usize)),
-            v if v & 0xF0FF == 0xF01E => Ok(OpCodes::AddIVx(((v & 0x0F00) >> 8) as usize)),
-
-            _ => Err(format!("Op code not implemented for {:#06x}", v)),
-        }
+            ),
+            0xE000 => match v & 0xF0FF {
+                0xE09E => OpCodes::SkpVx(((v & 0x0F00) >> 8) as usize),
+                0xE0A1 => OpCodes::SknpVx(((v & 0x0F00) >> 8) as usize),
+                _ => OpCodes::Unkn(v),
+            },
+            0xF000 => match (v & 0xF0FF, ((v & 0x0F00) >> 8) as usize) {
+                (0xF015, x) => OpCodes::LdDtVx(x),
+                (0xF055, x) => OpCodes::LdIVx(x),
+                (0xF065, x) => OpCodes::LdVxI(x),
+                (0xF007, x) => OpCodes::LdVxDt(x),
+                (0xF00A, x) => OpCodes::LdVxK(x),
+                (0xF018, x) => OpCodes::LdStVx(x),
+                (0xF029, x) => OpCodes::LdFVx(x),
+                (0xF033, x) => OpCodes::LdBVx(x),
+                (0xF01E, x) => OpCodes::AddIVx(x),
+                _ => OpCodes::Unkn(v),
+            },
+            _ => OpCodes::Unkn(v),
+        })
     }
 }
 
@@ -420,6 +379,9 @@ impl Chip8 {
         // println!("{:?}", self);
 
         match op {
+            OpCodes::Unkn(c) => {
+                panic!("Unknwon opcode {}", c);
+            }
             OpCodes::CLS => {
                 self.display.fill(0);
             }
@@ -479,7 +441,6 @@ impl Chip8 {
             OpCodes::JmpV0Nnn(n) => {
                 self.pc = n + self.v[0] as usize;
             }
-            OpCodes::NOOP => {}
             OpCodes::SeVxNn(x, n) => {
                 if self.v[x] == n {
                     self.pc += 2;
