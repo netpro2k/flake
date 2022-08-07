@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashMap, process, time::Instant};
 
 use miniquad::*;
 
@@ -13,11 +13,51 @@ struct Vertex {
     uv: Vec2,
 }
 
+const KEY_TOGGLE_PLAY: KeyCode = KeyCode::P;
+const KEY_PLAY_BACKWARD: KeyCode = KeyCode::H;
+const KEY_STEP_DEBUG: KeyCode = KeyCode::J;
+const KEY_UNDO_STEP_DEBUG: KeyCode = KeyCode::K;
+const KEY_GO_FASTER: KeyCode = KeyCode::Equal;
+const KEY_GO_SLOWER: KeyCode = KeyCode::Minus;
+const KEY_GO_NORMAL: KeyCode = KeyCode::Key0;
+const KEY_TERMINATE: KeyCode = KeyCode::Semicolon;
+
+struct Debugger {
+    is_enabled: bool,
+    is_playing: bool,
+    keyboard: HashMap<KeyCode, bool>,
+    consumable_keys: HashMap<KeyCode, bool>,
+    states: Vec<Chip8>,
+}
+
+impl Debugger {
+    pub fn new() -> Debugger {
+        Debugger {
+            is_enabled: true,
+            is_playing: false,
+            keyboard: HashMap::new(),
+            consumable_keys: HashMap::new(),
+            states: vec![],
+        }
+    }
+
+    pub fn consume_key(self: &mut Self, keycode: KeyCode) -> bool {
+        let result = *self.consumable_keys.get(&keycode).unwrap_or(&false);
+        self.consumable_keys.insert(keycode, false);
+        result
+    }
+
+    pub fn key_down(self: &mut Self, keycode: KeyCode) -> bool {
+        *self.keyboard.get(&keycode).unwrap_or(&false)
+    }
+}
+
 struct Stage {
     pipeline: Pipeline,
     bindings: Bindings,
     chip: Chip8,
     size: (i32, i32),
+    debugger: Debugger,
 }
 
 mod chip8;
@@ -26,6 +66,7 @@ use chip8::Chip8;
 impl Stage {
     pub fn new(ctx: &mut Context, filename: &str) -> Stage {
         let mut chip = Chip8::new();
+        chip.execution_speed = 0.20;
         // chip.load("roms/test_opcode.ch8")
         //     .expect("Failed to load file");
         chip.load(filename).expect("Failed to load file");
@@ -78,6 +119,7 @@ impl Stage {
             bindings,
             chip,
             size: (1200, 600),
+            debugger: Debugger::new(),
         }
     }
 }
@@ -106,8 +148,69 @@ fn keycode_to_index(keycode: KeyCode) -> Option<usize> {
 
 impl EventHandler for Stage {
     fn update(&mut self, ctx: &mut Context) {
-        self.chip.step(Instant::now());
-        self.bindings.images[0].update(ctx, &self.chip.display)
+        if !self.debugger.is_enabled {
+            self.chip.step_with_time();
+            self.bindings.images[0].update(ctx, &self.chip.display);
+            return;
+        }
+
+        // DEBUGGER
+
+        if self.debugger.consume_key(KEY_TERMINATE) {
+            process::exit(0);
+        }
+
+        if self.debugger.consume_key(KEY_GO_FASTER) {
+            self.chip.execution_speed += 0.1;
+            println!("Faster! {}", self.chip.execution_speed);
+        }
+
+        if self.debugger.consume_key(KEY_GO_SLOWER) {
+            self.chip.execution_speed = 0.1;
+            println!("Slower! {}", self.chip.execution_speed);
+        }
+
+        if self.debugger.consume_key(KEY_GO_NORMAL) {
+            self.chip.execution_speed = 1.0;
+            println!("Normal! {}", self.chip.execution_speed);
+        }
+
+        if self.debugger.consume_key(KEY_TOGGLE_PLAY) {
+            self.debugger.is_playing = !self.debugger.is_playing;
+            if self.debugger.is_playing {
+                // Reset timers so that we don't immediately jump ahead
+                self.chip.next_tick = Instant::now();
+                self.chip.next_timers_tick = Instant::now();
+                // TODO: There is a more correct way to resume,
+                //       by getting the duration between the two timers.
+            }
+        }
+
+        if self.debugger.is_playing {
+            self.debugger.states.push(self.chip.clone());
+            self.chip.step_with_time(); // Note: We don't close sub-step states here
+        } else {
+            if self.debugger.consume_key(KEY_STEP_DEBUG) {
+                self.debugger.states.push(self.chip.clone());
+                println!("{:?}", self.debugger.states.last().unwrap());
+                self.chip.step_debug();
+            }
+
+            if self.debugger.key_down(KEY_PLAY_BACKWARD) {
+                if let Some(prev) = self.debugger.states.pop() {
+                    self.chip.clone_from(&prev);
+                }
+            }
+
+            if self.debugger.consume_key(KEY_UNDO_STEP_DEBUG) {
+                if let Some(prev) = self.debugger.states.pop() {
+                    self.chip.clone_from(&prev);
+                    println!("{:?}", self.chip);
+                }
+            }
+        }
+
+        self.bindings.images[0].update(ctx, &self.chip.display);
     }
 
     fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) {
@@ -124,17 +227,20 @@ impl EventHandler for Stage {
         if let Some(index) = keycode_to_index(keycode) {
             self.chip.keys[index] = true;
         }
+
+        self.debugger.keyboard.insert(keycode, true);
+        self.debugger.consumable_keys.insert(keycode, true);
     }
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymods: KeyMods) {
         if let Some(index) = keycode_to_index(keycode) {
             self.chip.keys[index] = false;
         }
+        self.debugger.keyboard.insert(keycode, false);
+        self.debugger.consumable_keys.insert(keycode, false);
     }
 
     fn draw(&mut self, ctx: &mut Context) {
-        // let t = date::now();
-
         ctx.begin_default_pass(Default::default());
 
         let (width, height) = self.size;
@@ -143,17 +249,9 @@ impl EventHandler for Stage {
         } else {
             ctx.apply_viewport(0, (height - width / 2) / 2, width, width / 2);
         }
-        // ctx.apply_viewport(0, 0, width, height);
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
-        // for i in 0..10 {
-        //     let t = t + i as f64 * 0.3;
-
-        //     ctx.apply_uniforms(&shader::Uniforms {
-        //         offset: (t.sin() as f32 * 0.5, (t * 3.).cos() as f32 * 0.5),
-        //     });
         ctx.draw(0, 6, 1);
-        // }
         ctx.end_render_pass();
 
         ctx.commit_frame();

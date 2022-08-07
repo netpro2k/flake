@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     fs::File,
-    io::{stdin, Read},
+    io::Read,
     time::{Duration, Instant},
 };
 
@@ -17,36 +17,73 @@ pub struct Chip8 {
     mode: Modes,
     pub keys: [bool; 16],
 
-    next_tick: Instant,
-    next_timers_tick: Instant,
+    pub execution_speed: f32,
+    pub next_tick: Instant,
+    pub next_timers_tick: Instant,
 
     sound_playing: bool,
+}
+
+impl std::clone::Clone for Chip8 {
+    fn clone(&self) -> Self {
+        let mut chip8 = Chip8::new();
+        chip8.clone_from(self);
+        chip8
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.memory.copy_from_slice(&source.memory);
+        self.display.copy_from_slice(&source.display);
+        self.v.copy_from_slice(&source.v);
+        self.pc = source.pc;
+        self.st = source.st;
+        self.dt = source.dt;
+        self.i = source.i;
+        for s in source.stack.iter() {
+            self.stack.push(*s);
+        }
+        self.mode = source.mode;
+        self.keys.copy_from_slice(&source.keys);
+        self.execution_speed = source.execution_speed;
+        self.next_tick = source.next_tick;
+        self.next_timers_tick = source.next_timers_tick;
+        self.sound_playing = source.sound_playing;
+    }
 }
 
 impl fmt::Debug for Chip8 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!(
             "
-PC: {:#06x}
- I: {:#06x}
- V: {}
- DISPLAY:
+
+
+
+
+■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 {}
+■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  PC: {:#06x}
+   I: {:#06x}
+   V: {}
+V[x]: {}
 ",
-            &self.pc,
-            &self.i,
-            &self.v.map(|v| format!("{:#06x}", v)).join(","),
             &self
                 .display
                 .map(|b| if b != 0 { "■" } else { " " })
                 .chunks(64)
                 .map(|line| line.join("") + "\n")
-                .collect::<String>()
+                .collect::<String>(),
+            &self.pc,
+            &self.i,
+            &self.v.map(|v| format!("{:#06x}", v)).join(","),
+            (0..16)
+                .map(|i: u32| format!("{:#06x},", i))
+                .collect::<String>(),
         ))
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Modes {
     Chip8,
     // Chip48,
@@ -212,6 +249,7 @@ impl Chip8 {
             next_tick: Instant::now(),
             next_timers_tick: Instant::now(),
             sound_playing: false,
+            execution_speed: 1.0,
         }
     }
 
@@ -242,34 +280,35 @@ impl Chip8 {
         Ok(())
     }
 
-    pub fn step(&mut self, t: Instant) {
-        loop {
-            if t < self.next_tick && t < self.next_timers_tick {
-                return;
+    pub fn step_debug(&mut self) {
+        if self.next_timers_tick < self.next_tick {
+            if self.st > 0 {
+                self.st -= 1;
             }
+            if self.dt > 0 {
+                self.dt -= 1;
+            }
+            self.next_timers_tick += Duration::from_secs_f32(1.0 / (60.0 * self.execution_speed));
+        } else {
+            self.tick();
+            self.next_tick += Duration::from_secs_f32(1.0 / (700.0 * self.execution_speed));
+        }
+        if self.st > 0 && !self.sound_playing {
+            // TODO
+            // play sound
+            self.sound_playing = true;
+            println!("Start sound");
+        } else if self.st == 0 && self.sound_playing {
+            println!("stop sound");
+            self.sound_playing = false;
+            // stop sound
+        }
+    }
 
-            if self.next_timers_tick < self.next_tick {
-                if self.st > 0 {
-                    self.st -= 1;
-                }
-                if self.dt > 0 {
-                    self.dt -= 1;
-                }
-                self.next_timers_tick += Duration::from_secs_f32(1.0 / 60.0);
-            } else {
-                self.tick();
-                self.next_tick += Duration::from_secs_f32(1.0 / 700.0);
-            }
-            if self.st > 0 && !self.sound_playing {
-                // TODO
-                // play sound
-                self.sound_playing = true;
-                println!("Start sound");
-            } else if self.st == 0 && self.sound_playing {
-                println!("stop sound");
-                self.sound_playing = false;
-                // stop sound
-            }
+    pub fn step_with_time(&mut self) {
+        let t = Instant::now();
+        while t > self.next_tick && t > self.next_timers_tick {
+            self.step_debug();
         }
     }
 
