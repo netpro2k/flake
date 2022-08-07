@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use miniquad::*;
 
 #[repr(C)]
@@ -22,11 +24,11 @@ mod chip8;
 use chip8::Chip8;
 
 impl Stage {
-    pub fn new(ctx: &mut Context) -> Stage {
+    pub fn new(ctx: &mut Context, filename: &str) -> Stage {
         let mut chip = Chip8::new();
         // chip.load("roms/test_opcode.ch8")
         //     .expect("Failed to load file");
-        chip.load("roms/breakout.ch8").expect("Failed to load file");
+        chip.load(filename).expect("Failed to load file");
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
@@ -104,17 +106,7 @@ fn keycode_to_index(keycode: KeyCode) -> Option<usize> {
 
 impl EventHandler for Stage {
     fn update(&mut self, ctx: &mut Context) {
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
-        self.chip.tick();
+        self.chip.step(Instant::now());
         self.bindings.images[0].update(ctx, &self.chip.display)
     }
 
@@ -206,6 +198,7 @@ mod shader {
 }
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
     miniquad::start(
         conf::Conf {
             window_title: "Flake".to_string(),
@@ -213,6 +206,12 @@ fn main() {
             window_height: 600,
             ..Default::default()
         },
-        |mut ctx| Box::new(Stage::new(&mut ctx)),
+        move |mut ctx| {
+            if let Some(filename) = args.get(1) {
+                Box::new(Stage::new(&mut ctx, filename))
+            } else {
+                Box::new(Stage::new(&mut ctx, "roms/breakout.ch8"))
+            }
+        },
     );
 }
