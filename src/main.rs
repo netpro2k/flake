@@ -66,7 +66,7 @@ use chip8::Chip8;
 impl Stage {
     pub fn new(ctx: &mut Context, filename: &str) -> Stage {
         let mut chip = Chip8::new();
-        chip.execution_speed = 0.20;
+        chip.execution_speed = 1.0;
         // chip.load("roms/test_opcode.ch8")
         //     .expect("Failed to load file");
         chip.load(filename).expect("Failed to load file");
@@ -194,6 +194,14 @@ impl EventHandler for Stage {
                 self.debugger.states.push(self.chip.clone());
                 println!("{:?}", self.debugger.states.last().unwrap());
                 self.chip.step_debug();
+                println!(
+                    "
+----------------------------------------------------------
+Changes:
+{}
+----------------------------------------------------------",
+                    Chip8::compare(&self.debugger.states.last().unwrap(), &self.chip)
+                );
             }
 
             if self.debugger.key_down(KEY_PLAY_BACKWARD) {

@@ -24,6 +24,91 @@ pub struct Chip8 {
     sound_playing: bool,
 }
 
+impl Chip8 {
+    pub fn compare(a: &Chip8, b: &Chip8) -> String {
+        let mut s = vec![];
+
+        a.memory
+            .iter()
+            .enumerate()
+            .zip(b.memory.iter())
+            .filter(|((_index, x), y)| x != y)
+            .for_each(|((index, x), y)| {
+                s.push(format!("Memory {:#06x}: {:#06x} → {:#06x}", index, x, y))
+            });
+
+        a.display
+            .iter()
+            .enumerate()
+            .zip(b.display.iter())
+            .filter(|((_index, x), y)| x != y)
+            .for_each(|((index, x), y)| {
+                s.push(format!("Display {:#06x}: {:#06x} → {:#06x}", index, x, y))
+            });
+
+        a.v.iter()
+            .enumerate()
+            .zip(b.v.iter())
+            .filter(|((_index, x), y)| x != y)
+            .for_each(|((index, x), y)| {
+                s.push(format!("V {:#06x}: {:#06x} → {:#06x}", index, x, y))
+            });
+
+        if a.pc != b.pc {
+            s.push(format!("PC: {:#06x} → {:#06x}", a.pc, b.pc));
+        }
+
+        if a.st != b.st {
+            s.push(format!("ST: {:#06x} → {:#06x}", a.st, b.st));
+        }
+
+        if a.dt != b.dt {
+            s.push(format!("DT: {:#06x} → {:#06x}", a.dt, b.dt));
+        }
+
+        if a.i != b.i {
+            s.push(format!(" I: {:#06x} → {:#06x}", a.i, b.i));
+        }
+
+        // a.stack
+        //     .iter()
+        //     .enumerate()
+        //     .zip(b.stack.iter())
+        //     .filter(|((_index, x), y)| x != y)
+        //     .for_each(|((index, x), y)| {
+        //         s.push(format!("Stack {:#06x}: {:#06x} → {:#06x}", index, x, y))
+        //     });
+
+        // stack
+
+        if a.mode != b.mode {
+            s.push(format!(" mode: {:?} → {:?}", a.mode, b.mode));
+        }
+
+        // keys
+
+        if a.next_tick != b.next_tick {
+            s.push(format!(" tick: {:?} → {:?}", a.next_tick, b.next_tick));
+        }
+
+        if a.next_timers_tick != b.next_timers_tick {
+            s.push(format!(
+                "timers: {:?} → {:?}",
+                a.next_timers_tick, b.next_timers_tick
+            ));
+        }
+
+        if a.sound_playing != b.sound_playing {
+            s.push(format!(
+                "sound_playing: {:?} → {:?}",
+                a.sound_playing, b.sound_playing
+            ));
+        }
+
+        return s.join("\n");
+    }
+}
+
 impl std::clone::Clone for Chip8 {
     fn clone(&self) -> Self {
         let mut chip8 = Chip8::new();
@@ -39,9 +124,7 @@ impl std::clone::Clone for Chip8 {
         self.st = source.st;
         self.dt = source.dt;
         self.i = source.i;
-        for s in source.stack.iter() {
-            self.stack.push(*s);
-        }
+        self.stack = source.stack.clone();
         self.mode = source.mode;
         self.keys.copy_from_slice(&source.keys);
         self.execution_speed = source.execution_speed;
@@ -62,10 +145,13 @@ impl fmt::Debug for Chip8 {
 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 {}
 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-  PC: {:#06x}
-   I: {:#06x}
-   V: {}
-V[x]: {}
+       PC: {:#06x}
+        I: {:#06x}
+ V[index]: {}
+V[values]: {}
+    Stack: {}
+       ST: {}
+       DT: {}
 ",
             &self
                 .display
@@ -75,10 +161,17 @@ V[x]: {}
                 .collect::<String>(),
             &self.pc,
             &self.i,
-            &self.v.map(|v| format!("{:#06x}", v)).join(","),
             (0..16)
-                .map(|i: u32| format!("{:#06x},", i))
+                .map(|i: u32| format!("{:#06x}, ", i))
                 .collect::<String>(),
+            &self.v.map(|v| format!("{:#06x}", v)).join(", "),
+            &self
+                .stack
+                .iter()
+                .map(|addr| format!("{:#06x}, ", addr))
+                .collect::<String>(),
+            &self.st,
+            &self.dt,
         ))
     }
 }
@@ -93,27 +186,28 @@ enum Modes {
 #[derive(Debug)]
 enum OpCodes {
     NOOP,
-    CLS,                          // CLS — 00E0
-    RET,                          // RET — 00EE
-    JMP(usize),                   // JMP — 1NNN
-    CALL(usize),                  // CALL NNN — 2NNN
-    SeVxNn(usize, u8),            // SE VX, NN — 3XNN
-    SneVxNn(usize, u8),           // SNE VX, NN — 4XNN
-    SeVxVy(usize, usize),         // SE VX, VY — 5XY0
-    LdVxNn(usize, u8),            // LD VX, NN — 6XNN
-    AddVxNn(usize, u8),           // ADD VX, NN — 7XNN
-    LdVxVy(usize, usize),         // LD VX, VY — 8XY0
-    OrVxVy(usize, usize),         // OR VX, VY — 8XY1
-    AndVxVy(usize, usize),        // AND VX, VY — 8XY2
-    XorVxVy(usize, usize),        // XOR VX, VY — 8XY3
-    AddVxVy(usize, usize),        // ADD VX, VY — 8XY4
-    SubVxVy(usize, usize),        // SUB VX, VY — 8XY5
-    ShrVxVy(usize, usize),        // SHR VX {, VY} — 8XY6
-    SubnVxVy(usize, usize),       // SUBN VX, VY — 8XY7
-    ShlVxVy(usize, usize),        // SHL VX {, VY} — 8XYE
-    SneVxVy(usize, usize),        // SNE VX, VY — 9XY0
-    LdINn(u16),                   // LD I, NNN — ANNN
-    JmpV0Nnn(usize),              // JMP V0, NNN — BNNN
+    CLS,                    // CLS — 00E0
+    RET,                    // RET — 00EE
+    JMP(usize),             // JMP — 1NNN
+    CALL(usize),            // CALL NNN — 2NNN
+    SeVxNn(usize, u8),      // SE VX, NN — 3XNN
+    SneVxNn(usize, u8),     // SNE VX, NN — 4XNN
+    SeVxVy(usize, usize),   // SE VX, VY — 5XY0
+    LdVxNn(usize, u8),      // LD VX, NN — 6XNN
+    AddVxNn(usize, u8),     // ADD VX, NN — 7XNN
+    LdVxVy(usize, usize),   // LD VX, VY — 8XY0
+    OrVxVy(usize, usize),   // OR VX, VY — 8XY1
+    AndVxVy(usize, usize),  // AND VX, VY — 8XY2
+    XorVxVy(usize, usize),  // XOR VX, VY — 8XY3
+    AddVxVy(usize, usize),  // ADD VX, VY — 8XY4
+    SubVxVy(usize, usize),  // SUB VX, VY — 8XY5
+    ShrVxVy(usize, usize),  // SHR VX {, VY} — 8XY6
+    SubnVxVy(usize, usize), // SUBN VX, VY — 8XY7
+    ShlVxVy(usize, usize),  // SHL VX {, VY} — 8XYE
+    SneVxVy(usize, usize),  // SNE VX, VY — 9XY0
+    LdINn(u16),             // LD I, NNN — ANNN
+    JmpV0Nnn(usize),        // JMP V0, NNN — BNNN
+    // JmpVxNnn(usize, usize),       // JMP V0, NNN — BNNN
     RndVxNn(usize, u8),           // RND VX, NN – CXNN
     DrawVxVyN(usize, usize, u16), // DRW VX, VY, N — DXYN
     SkpVx(usize),                 // SKP VX — EX9E
@@ -139,6 +233,10 @@ impl TryFrom<u16> for OpCodes {
             0x00E0 => Ok(OpCodes::CLS),
             v if v & 0xF000 == 0x1000 => Ok(OpCodes::JMP((v & 0x0FFF) as usize)),
             v if v & 0xF000 == 0xB000 => Ok(OpCodes::JmpV0Nnn((v & 0x0FFF) as usize)),
+            // v if v & 0xF000 == 0xB000 => Ok(OpCodes::JmpVxNnn(
+            //     ((v & 0x0F00) >> 8) as usize,
+            //     (v & 0x0FFF) as usize,
+            // )),
             v if v & 0xF000 == 0x2000 => Ok(OpCodes::CALL((v & 0x0FFF) as usize)),
             v if v & 0xF000 == 0x6000 => Ok(OpCodes::LdVxNn(
                 ((v & 0x0F00) >> 8) as usize,
@@ -256,7 +354,7 @@ impl Chip8 {
     pub fn load(&mut self, filename: &str) -> Result<(), std::io::Error> {
         self.memory.fill(0);
 
-        self.memory[0..16 * 5].copy_from_slice(&[
+        self.memory[0..(16 * 5)].copy_from_slice(&[
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
             0x20, 0x60, 0x20, 0x20, 0x70, // 1
             0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -339,12 +437,12 @@ impl Chip8 {
                 let x = (self.v[vx] as usize) % 64; // wrap
                 let y = (self.v[vy] as usize) % 32; // wrap
                 for dy in 0..n as usize {
-                    if y + dy >= 32 {
+                    if (y + dy) >= 32 {
                         break; // clip
                     }
                     let line: u8 = self.memory[self.i as usize + dy];
                     for dx in 0..8 as usize {
-                        if x + dx >= 64 {
+                        if (x + dx) >= 64 {
                             break; // clip
                         }
                         let loc = x + dx + (y + dy) * 64;
@@ -375,6 +473,9 @@ impl Chip8 {
             OpCodes::JMP(n) => {
                 self.pc = n;
             }
+            // OpCodes::JmpVxNnn(x, n) => {
+            //     self.pc = n + self.v[x] as usize;
+            // }
             OpCodes::JmpV0Nnn(n) => {
                 self.pc = n + self.v[0] as usize;
             }
@@ -435,14 +536,14 @@ impl Chip8 {
                 if self.mode == Modes::Chip8 {
                     self.v[x] = self.v[y];
                 }
-                self.v[0xf] = self.v[x] & 0x01;
+                self.v[0xf] = self.v[x] & 1;
                 self.v[x] = self.v[x] >> 1;
             }
             OpCodes::ShlVxVy(x, y) => {
                 if self.mode == Modes::Chip8 {
                     self.v[x] = self.v[y];
                 }
-                self.v[0xf] = self.v[x] & 0x80;
+                self.v[0xf] = self.v[x] >> 7;
                 self.v[x] = self.v[x] << 1;
             }
             OpCodes::LdIVx(x) => {
