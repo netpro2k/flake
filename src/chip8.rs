@@ -208,81 +208,81 @@ enum OpCodes {
     LdINn(u16),             // LD I, NNN — ANNN
     JmpV0Nnn(usize),        // JMP V0, NNN — BNNN
     // JmpVxNnn(usize, usize),       // JMP V0, NNN — BNNN
-    RndVxNn(usize, u8),           // RND VX, NN – CXNN
-    DrawVxVyN(usize, usize, u16), // DRW VX, VY, N — DXYN
-    SkpVx(usize),                 // SKP VX — EX9E
-    SknpVx(usize),                // SKNP VX — EXA1
-    LdVxDt(usize),                // LD VX, DT — FX07
-    LdVxK(usize),                 // LD VX, K — FX0A
-    LdDtVx(usize),                // LD DT, VX — FX15
-    LdStVx(usize),                // LD ST, VX — FX18
-    AddIVx(usize),                // ADD I, VX — FX1E
-    LdFVx(usize),                 // LD F, VX — FX29
-    LdBVx(usize),                 // LD B, VX — FX33
-    LdIVx(usize),                 // LD [I], VX — FX55
-    LdVxI(usize),                 // LD VX, [I] — FX65
+    RndVxNn(usize, u8),             // RND VX, NN – CXNN
+    DrawVxVyN(usize, usize, usize), // DRW VX, VY, N — DXYN
+    SkpVx(usize),                   // SKP VX — EX9E
+    SknpVx(usize),                  // SKNP VX — EXA1
+    LdVxDt(usize),                  // LD VX, DT — FX07
+    LdVxK(usize),                   // LD VX, K — FX0A
+    LdDtVx(usize),                  // LD DT, VX — FX15
+    LdStVx(usize),                  // LD ST, VX — FX18
+    AddIVx(usize),                  // ADD I, VX — FX1E
+    LdFVx(usize),                   // LD F, VX — FX29
+    LdBVx(usize),                   // LD B, VX — FX33
+    LdIVx(usize),                   // LD [I], VX — FX55
+    LdVxI(usize),                   // LD VX, [I] — FX65
 }
 
 impl TryFrom<u16> for OpCodes {
     type Error = String;
 
     fn try_from(v: u16) -> Result<Self, Self::Error> {
+        let nnn = (v & 0x0FFF) as usize;
+
+        let _byte0 = ((v & 0xFF00) >> 8) as u8;
+        let byte1 = (v & 0x00FF) as u8;
+
+        let _nib0 = ((v & 0xF000) >> 12) as usize;
+        let nib1 = ((v & 0x0F00) >> 8) as usize;
+        let nib2 = ((v & 0x00F0) >> 4) as usize;
+        let nib3 = (v & 0x000F) as usize;
+
         Ok(match v & 0xF000 {
             0x0000 => match v {
                 0x00EE => OpCodes::RET,
                 0x00E0 => OpCodes::CLS,
                 _ => OpCodes::Unkn(v),
             },
-            0x1000 => OpCodes::JMP((v & 0x0FFF) as usize),
-            0x2000 => OpCodes::CALL((v & 0x0FFF) as usize),
-            0x3000 => OpCodes::SeVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
-            0x4000 => OpCodes::SneVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
-            0x5000 => OpCodes::SeVxVy(((v & 0x0F00) >> 8) as usize, ((v & 0x00F0) >> 4) as usize),
-            0x6000 => OpCodes::LdVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
-            0x7000 => OpCodes::AddVxNn(((v & 0x0F00) >> 8).try_into().unwrap(), (v & 0x00FF) as u8),
-            0x8000 => match (
-                v & 0xF00F,
-                ((v & 0x0F00) >> 8) as usize,
-                ((v & 0x00F0) >> 4) as usize,
-            ) {
-                (0x8000, x, y) => OpCodes::LdVxVy(x, y),
-                (0x8001, x, y) => OpCodes::OrVxVy(x, y),
-                (0x8002, x, y) => OpCodes::AndVxVy(x, y),
-                (0x8003, x, y) => OpCodes::XorVxVy(x, y),
-                (0x8004, x, y) => OpCodes::AddVxVy(x, y),
-                (0x8005, x, y) => OpCodes::SubVxVy(x, y),
-                (0x8006, x, y) => OpCodes::ShrVxVy(x, y),
-                (0x8007, x, y) => OpCodes::SubnVxVy(x, y),
-                (0x800E, x, y) => OpCodes::ShlVxVy(x, y),
+            0x1000 => OpCodes::JMP(nnn),
+            0x2000 => OpCodes::CALL(nnn),
+            0x3000 => OpCodes::SeVxNn(nib1, byte1),
+            0x4000 => OpCodes::SneVxNn(nib1, byte1),
+            0x5000 => OpCodes::SeVxVy(nib1, nib2),
+            0x6000 => OpCodes::LdVxNn(nib1, byte1),
+            0x7000 => OpCodes::AddVxNn(nib1, byte1),
+            0x8000 => match v & 0xF00F {
+                0x8000 => OpCodes::LdVxVy(nib1, nib2),
+                0x8001 => OpCodes::OrVxVy(nib1, nib2),
+                0x8002 => OpCodes::AndVxVy(nib1, nib2),
+                0x8003 => OpCodes::XorVxVy(nib1, nib2),
+                0x8004 => OpCodes::AddVxVy(nib1, nib2),
+                0x8005 => OpCodes::SubVxVy(nib1, nib2),
+                0x8006 => OpCodes::ShrVxVy(nib1, nib2),
+                0x8007 => OpCodes::SubnVxVy(nib1, nib2),
+                0x800E => OpCodes::ShlVxVy(nib1, nib2),
                 _ => OpCodes::Unkn(v),
             },
-            0x9000 => OpCodes::SneVxVy(
-                ((v & 0x0F00) >> 8).try_into().unwrap(),
-                ((v & 0x00F0) >> 4).try_into().unwrap(),
-            ),
-            0xA000 => OpCodes::LdINn(v & 0x0FFF),
-            0xB000 => OpCodes::JmpV0Nnn((v & 0x0FFF) as usize),
-            0xC000 => OpCodes::RndVxNn(((v & 0x0F00) >> 8) as usize, (v & 0x00FF) as u8),
-            0xD000 => OpCodes::DrawVxVyN(
-                ((v & 0x0F00) >> 8) as usize,
-                ((v & 0x00F0) >> 4) as usize,
-                v & 0x000F,
-            ),
+            0x9000 => OpCodes::SneVxVy(nib1, nib2),
+            0xA000 => OpCodes::LdINn(nnn as u16),
+            0xB000 => OpCodes::JmpV0Nnn(nnn),
+            // 0xB000 => OpCodes::JmpVxNnn(nib1, nnn),
+            0xC000 => OpCodes::RndVxNn(nib1, byte1),
+            0xD000 => OpCodes::DrawVxVyN(nib1, nib2, nib3),
             0xE000 => match v & 0xF0FF {
-                0xE09E => OpCodes::SkpVx(((v & 0x0F00) >> 8) as usize),
-                0xE0A1 => OpCodes::SknpVx(((v & 0x0F00) >> 8) as usize),
+                0xE09E => OpCodes::SkpVx(nib1),
+                0xE0A1 => OpCodes::SknpVx(nib1),
                 _ => OpCodes::Unkn(v),
             },
-            0xF000 => match (v & 0xF0FF, ((v & 0x0F00) >> 8) as usize) {
-                (0xF015, x) => OpCodes::LdDtVx(x),
-                (0xF055, x) => OpCodes::LdIVx(x),
-                (0xF065, x) => OpCodes::LdVxI(x),
-                (0xF007, x) => OpCodes::LdVxDt(x),
-                (0xF00A, x) => OpCodes::LdVxK(x),
-                (0xF018, x) => OpCodes::LdStVx(x),
-                (0xF029, x) => OpCodes::LdFVx(x),
-                (0xF033, x) => OpCodes::LdBVx(x),
-                (0xF01E, x) => OpCodes::AddIVx(x),
+            0xF000 => match v & 0xF0FF {
+                0xF015 => OpCodes::LdDtVx(nib1),
+                0xF055 => OpCodes::LdIVx(nib1),
+                0xF065 => OpCodes::LdVxI(nib1),
+                0xF007 => OpCodes::LdVxDt(nib1),
+                0xF00A => OpCodes::LdVxK(nib1),
+                0xF018 => OpCodes::LdStVx(nib1),
+                0xF029 => OpCodes::LdFVx(nib1),
+                0xF033 => OpCodes::LdBVx(nib1),
+                0xF01E => OpCodes::AddIVx(nib1),
                 _ => OpCodes::Unkn(v),
             },
             _ => OpCodes::Unkn(v),
@@ -398,7 +398,7 @@ impl Chip8 {
                 self.v[0xf] = 0;
                 let x = (self.v[vx] as usize) % 64; // wrap
                 let y = (self.v[vy] as usize) % 32; // wrap
-                for dy in 0..n as usize {
+                for dy in 0..n {
                     if (y + dy) >= 32 {
                         break; // clip
                     }
