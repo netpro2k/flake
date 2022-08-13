@@ -33,8 +33,8 @@ struct Debugger {
 impl Debugger {
     pub fn new() -> Debugger {
         Debugger {
-            is_enabled: true,
-            is_playing: false,
+            is_enabled: false,
+            is_playing: true,
             keyboard: HashMap::new(),
             consumable_keys: HashMap::new(),
             states: vec![],
@@ -269,24 +269,8 @@ Changes:
 mod shader {
     use miniquad::*;
 
-    pub const VERTEX: &str = r#"#version 100
-    attribute vec2 pos;
-    attribute vec2 uv;
-    uniform vec2 offset;
-    varying lowp vec2 texcoord;
-    void main() {
-        gl_Position = vec4(pos + offset, 0, 1);
-        texcoord = uv;
-    }"#;
-
-    pub const FRAGMENT: &str = r#"#version 100
-    precision lowp float;
-    varying lowp vec2 texcoord;
-    uniform sampler2D tex;
-    void main() {
-        float c = texture2D(tex, vec2(texcoord.x, 1.0 - texcoord.y)).r;
-        gl_FragColor = vec4(c, c, 0.5, 1.0);
-    }"#;
+    pub const VERTEX: &str = include_str!("vert.glsl");
+    pub const FRAGMENT: &str = include_str!("frag.glsl");
 
     pub fn meta() -> ShaderMeta {
         ShaderMeta {
