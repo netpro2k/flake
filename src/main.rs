@@ -1,5 +1,6 @@
 use std::{collections::HashMap, process, time::Instant};
 
+use glam::Mat4;
 use miniquad::*;
 
 #[repr(C)]
@@ -33,7 +34,7 @@ struct Debugger {
 impl Debugger {
     pub fn new() -> Debugger {
         Debugger {
-            is_enabled: false,
+            is_enabled: true,
             is_playing: true,
             keyboard: HashMap::new(),
             consumable_keys: HashMap::new(),
@@ -73,8 +74,8 @@ impl Stage {
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
-            Vertex { pos : Vec2 { x: -1.0, y: -1.0 }, uv: Vec2 { x: 0., y: 0. } },
-            Vertex { pos : Vec2 { x:  1.0, y: -1.0 }, uv: Vec2 { x: 1., y: 0. } },
+            Vertex { pos : Vec2 { x: -1.0, y: 0. }, uv: Vec2 { x: 0., y: 0. } },
+            Vertex { pos : Vec2 { x:  1.0, y: 0. }, uv: Vec2 { x: 1., y: 0. } },
             Vertex { pos : Vec2 { x:  1.0, y:  1.0 }, uv: Vec2 { x: 1., y: 1. } },
             Vertex { pos : Vec2 { x: -1.0, y:  1.0}, uv: Vec2 { x: 0., y: 1. } },
         ];
@@ -252,13 +253,33 @@ Changes:
         ctx.begin_default_pass(Default::default());
 
         let (width, height) = self.size;
-        if width > 2 * height {
-            ctx.apply_viewport((width - height * 2) / 2, 0, height * 2, height);
+        ctx.apply_viewport(0, 0, width, height);
+        let width = width as f32;
+        let height = height as f32;
+        let mut left = -1.0;
+        let mut right = 1.0;
+        let mut bottom = -1.0;
+        let top = 1.0; // Keep the quad at the top of the window, no matter what;
+        if width > height {
+            // Show more of the world (left/right)
+            // Keeping things centered
+            left = left * (width / height);
+            right = right * (width / height);
         } else {
-            ctx.apply_viewport(0, (height - width / 2) / 2, width, width / 2);
+            // Show more of the world,
+            // but only stretch downwards.
+            bottom = top - (top - bottom) * (height / width);
         }
+
+        let proj = Mat4::orthographic_rh_gl(left, right, bottom, top, -1.0, 1.0);
+        let view = Mat4::from_translation(glam::Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        });
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
+        ctx.apply_uniforms(&shader::Uniforms { proj: view * proj });
         ctx.draw(0, 6, 1);
         ctx.end_render_pass();
 
@@ -276,15 +297,15 @@ mod shader {
         ShaderMeta {
             images: vec!["tex".to_string()],
             uniforms: UniformBlockLayout {
-                uniforms: vec![UniformDesc::new("offset", UniformType::Float2)],
+                uniforms: vec![UniformDesc::new("proj", UniformType::Mat4)],
             },
         }
     }
 
-    // #[repr(C)]
-    // pub struct Uniforms {
-    //     pub offset: (f32, f32),
-    // }
+    #[repr(C)]
+    pub struct Uniforms {
+        pub proj: glam::Mat4,
+    }
 }
 
 fn main() {
