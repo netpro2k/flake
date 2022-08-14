@@ -1,13 +1,9 @@
 use std::{collections::HashMap, process, time::Instant};
 
 use glam::Mat4;
+use glam::Vec2;
 use miniquad::*;
 
-#[repr(C)]
-struct Vec2 {
-    x: f32,
-    y: f32,
-}
 #[repr(C)]
 struct Vertex {
     pos: Vec2,
@@ -35,20 +31,20 @@ impl Debugger {
     pub fn new() -> Debugger {
         Debugger {
             is_enabled: true,
-            is_playing: true,
+            is_playing: false,
             keyboard: HashMap::new(),
             consumable_keys: HashMap::new(),
             states: vec![],
         }
     }
 
-    pub fn consume_key(self: &mut Self, keycode: KeyCode) -> bool {
+    pub fn consume_key(&mut self, keycode: KeyCode) -> bool {
         let result = *self.consumable_keys.get(&keycode).unwrap_or(&false);
         self.consumable_keys.insert(keycode, false);
         result
     }
 
-    pub fn key_down(self: &mut Self, keycode: KeyCode) -> bool {
+    pub fn key_down(&mut self, keycode: KeyCode) -> bool {
         *self.keyboard.get(&keycode).unwrap_or(&false)
     }
 }
@@ -59,10 +55,13 @@ struct Stage {
     chip: Chip8,
     size: (i32, i32),
     debugger: Debugger,
+    text_test: SDFText,
 }
 
 mod chip8;
+mod sdf;
 use chip8::Chip8;
+use sdf::SDFText;
 
 impl Stage {
     pub fn new(ctx: &mut Context, filename: &str) -> Stage {
@@ -71,6 +70,8 @@ impl Stage {
         // chip.load("roms/test_opcode.ch8")
         //     .expect("Failed to load file");
         chip.load(filename).expect("Failed to load file");
+
+        let text = SDFText::new(ctx);
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
@@ -84,7 +85,7 @@ impl Stage {
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
 
-        let pixels: [u8; 64 * 32] = [255; 64 * 32];
+        let pixels: [u8; 64 * 32] = [0; 64 * 32];
         let texture = Texture::from_data_and_format(
             ctx,
             &pixels,
@@ -121,6 +122,7 @@ impl Stage {
             chip,
             size: (1200, 600),
             debugger: Debugger::new(),
+            text_test: text,
         }
     }
 }
@@ -149,6 +151,7 @@ fn keycode_to_index(keycode: KeyCode) -> Option<usize> {
 
 impl EventHandler for Stage {
     fn update(&mut self, ctx: &mut Context) {
+        // return;
         if !self.debugger.is_enabled {
             self.chip.step_with_time();
             self.bindings.images[0].update(ctx, &self.chip.display);
@@ -201,7 +204,7 @@ impl EventHandler for Stage {
 Changes:
 {}
 ----------------------------------------------------------",
-                    Chip8::compare(&self.debugger.states.last().unwrap(), &self.chip)
+                    Chip8::compare(self.debugger.states.last().unwrap(), &self.chip)
                 );
             }
 
@@ -263,8 +266,8 @@ Changes:
         if width > height {
             // Show more of the world (left/right)
             // Keeping things centered
-            left = left * (width / height);
-            right = right * (width / height);
+            left *= width / height;
+            right *= width / height;
         } else {
             // Show more of the world,
             // but only stretch downwards.
@@ -281,6 +284,9 @@ Changes:
         ctx.apply_bindings(&self.bindings);
         ctx.apply_uniforms(&shader::Uniforms { proj: view * proj });
         ctx.draw(0, 6, 1);
+
+        self.text_test.draw(ctx, proj);
+
         ctx.end_render_pass();
 
         ctx.commit_frame();
@@ -317,11 +323,11 @@ fn main() {
             window_height: 600,
             ..Default::default()
         },
-        move |mut ctx| {
+        move |ctx| {
             if let Some(filename) = args.get(1) {
-                Box::new(Stage::new(&mut ctx, filename))
+                Box::new(Stage::new(ctx, filename))
             } else {
-                Box::new(Stage::new(&mut ctx, "roms/breakout.ch8"))
+                Box::new(Stage::new(ctx, "roms/breakout.ch8"))
             }
         },
     );
