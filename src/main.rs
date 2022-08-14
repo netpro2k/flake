@@ -3,7 +3,7 @@ mod debugger;
 mod sdf;
 use chip8::Chip8;
 use debugger::{update, Debugger};
-use glam::{Mat4, Vec2};
+use glam::{Mat4, Vec2, Vec4};
 use miniquad::*;
 use sdf::SDFText;
 
@@ -34,10 +34,10 @@ impl Stage {
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
-            Vertex { pos : Vec2 { x: -1.0, y: 0. }, uv: Vec2 { x: 0., y: 0. } },
-            Vertex { pos : Vec2 { x:  1.0, y: 0. }, uv: Vec2 { x: 1., y: 0. } },
-            Vertex { pos : Vec2 { x:  1.0, y:  1.0 }, uv: Vec2 { x: 1., y: 1. } },
-            Vertex { pos : Vec2 { x: -1.0, y:  1.0}, uv: Vec2 { x: 0., y: 1. } },
+            Vertex { pos : Vec2 { x: 0.0, y: 0. }, uv: Vec2 { x: 0., y: 0. } },
+            Vertex { pos : Vec2 { x:  64.0, y: 0. }, uv: Vec2 { x: 1., y: 0. } },
+            Vertex { pos : Vec2 { x:  64.0, y:  32.0 }, uv: Vec2 { x: 1., y: 1. } },
+            Vertex { pos : Vec2 { x: 0.0, y:  32.0}, uv: Vec2 { x: 0., y: 1. } },
         ];
         let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
 
@@ -147,25 +147,32 @@ impl EventHandler for Stage {
         ctx.begin_default_pass(Default::default());
 
         let (width, height) = self.size;
-        ctx.apply_viewport(0, 0, width, height);
+        // ctx.apply_viewport(0, 0, width, height);
+        ctx.apply_viewport(0, 0, i32::min(width, height), i32::min(width, height));
         let width = width as f32;
         let height = height as f32;
-        let mut left = -1.0;
+        let mut left = 0.0;
         let mut right = 1.0;
-        let mut bottom = -1.0;
+        let mut bottom = 0.0;
         let top = 1.0; // Keep the quad at the top of the window, no matter what;
         if width > height {
             // Show more of the world (left/right)
             // Keeping things centered
-            left *= width / height;
-            right *= width / height;
+            // TODO
         } else {
             // Show more of the world,
             // but only stretch downwards.
-            bottom = top - (top - bottom) * (height / width);
+            // TODO
         }
 
-        let proj = Mat4::orthographic_rh_gl(left, right, bottom, top, -1.0, 1.0);
+        #[rustfmt::skip]
+        let model = Mat4::from_cols(
+            Vec4::new(1.0 / 64.0,        0.0, 0.0, 0.0),
+            Vec4::new(       0.0, 1.0 / 64.0, 0.0, 0.0),
+            Vec4::new(       1.0,        0.0, 1.0, 0.0),
+            Vec4::new(       0.0,        0.0, 0.0, 1.0)
+        );
+        let projection = Mat4::orthographic_rh_gl(left, right, bottom, top, -1.0, 1.0);
         let view = Mat4::from_translation(glam::Vec3 {
             x: 0.0,
             y: 0.0,
@@ -173,10 +180,13 @@ impl EventHandler for Stage {
         });
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
-        ctx.apply_uniforms(&shader::Uniforms { proj: view * proj });
+        ctx.apply_uniforms(&shader::Uniforms {
+            projection: view * projection,
+            model,
+        });
         ctx.draw(0, 6, 1);
 
-        self.text_test.draw(ctx, proj);
+        self.text_test.draw(ctx, projection);
 
         ctx.end_render_pass();
 
@@ -194,14 +204,18 @@ mod shader {
         ShaderMeta {
             images: vec!["tex".to_string()],
             uniforms: UniformBlockLayout {
-                uniforms: vec![UniformDesc::new("proj", UniformType::Mat4)],
+                uniforms: vec![
+                    UniformDesc::new("projection", UniformType::Mat4),
+                    UniformDesc::new("model", UniformType::Mat4),
+                ],
             },
         }
     }
 
     #[repr(C)]
     pub struct Uniforms {
-        pub proj: glam::Mat4,
+        pub model: glam::Mat4,
+        pub projection: glam::Mat4,
     }
 }
 

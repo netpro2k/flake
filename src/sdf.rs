@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
+use std::{collections::HashMap, fs::File, io::BufReader, ops::Mul, path::Path};
 
-use glam::Mat4;
+use glam::{Mat4, Quat, Vec3, Vec4};
 use image::{EncodableLayout, RgbaImage};
 use miniquad::*;
 
@@ -165,10 +165,15 @@ impl SDFText {
         SDFText { pipeline, bindings }
     }
 
-    pub fn draw(&self, ctx: &mut Context, proj: Mat4) {
+    pub fn draw(&self, ctx: &mut Context, projection: Mat4) {
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
-        ctx.apply_uniforms(&shader::Uniforms { proj });
+        let model = Mat4::from_scale_rotation_translation(
+            Vec3::new(0.1, 0.1, 0.1),
+            Quat::from_rotation_z(std::f32::consts::PI / 4.0),
+            Vec3::new(0.75, 0.5, 0.0),
+        );
+        ctx.apply_uniforms(&shader::Uniforms { projection, model });
         ctx.draw(0, 6, 1);
     }
 }
@@ -183,13 +188,17 @@ mod shader {
         ShaderMeta {
             images: vec!["tex".to_string()],
             uniforms: UniformBlockLayout {
-                uniforms: vec![UniformDesc::new("proj", UniformType::Mat4)],
+                uniforms: vec![
+                    UniformDesc::new("projection", UniformType::Mat4),
+                    UniformDesc::new("model", UniformType::Mat4),
+                ],
             },
         }
     }
 
     #[repr(C)]
     pub struct Uniforms {
-        pub proj: glam::Mat4,
+        pub projection: glam::Mat4,
+        pub model: glam::Mat4,
     }
 }
