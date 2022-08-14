@@ -1,8 +1,11 @@
-use std::{collections::HashMap, process, time::Instant};
-
-use glam::Mat4;
-use glam::Vec2;
+mod chip8;
+mod debugger;
+mod sdf;
+use chip8::Chip8;
+use debugger::{update, Debugger};
+use glam::{Mat4, Vec2};
 use miniquad::*;
+use sdf::SDFText;
 
 #[repr(C)]
 struct Vertex {
@@ -10,46 +13,7 @@ struct Vertex {
     uv: Vec2,
 }
 
-const KEY_TOGGLE_PLAY: KeyCode = KeyCode::P;
-const KEY_PLAY_BACKWARD: KeyCode = KeyCode::H;
-const KEY_STEP_DEBUG: KeyCode = KeyCode::J;
-const KEY_UNDO_STEP_DEBUG: KeyCode = KeyCode::K;
-const KEY_GO_FASTER: KeyCode = KeyCode::Equal;
-const KEY_GO_SLOWER: KeyCode = KeyCode::Minus;
-const KEY_GO_NORMAL: KeyCode = KeyCode::Key0;
-const KEY_TERMINATE: KeyCode = KeyCode::Semicolon;
-
-struct Debugger {
-    is_enabled: bool,
-    is_playing: bool,
-    keyboard: HashMap<KeyCode, bool>,
-    consumable_keys: HashMap<KeyCode, bool>,
-    states: Vec<Chip8>,
-}
-
-impl Debugger {
-    pub fn new() -> Debugger {
-        Debugger {
-            is_enabled: true,
-            is_playing: false,
-            keyboard: HashMap::new(),
-            consumable_keys: HashMap::new(),
-            states: vec![],
-        }
-    }
-
-    pub fn consume_key(&mut self, keycode: KeyCode) -> bool {
-        let result = *self.consumable_keys.get(&keycode).unwrap_or(&false);
-        self.consumable_keys.insert(keycode, false);
-        result
-    }
-
-    pub fn key_down(&mut self, keycode: KeyCode) -> bool {
-        *self.keyboard.get(&keycode).unwrap_or(&false)
-    }
-}
-
-struct Stage {
+pub struct Stage {
     pipeline: Pipeline,
     bindings: Bindings,
     chip: Chip8,
@@ -57,11 +21,6 @@ struct Stage {
     debugger: Debugger,
     text_test: SDFText,
 }
-
-mod chip8;
-mod sdf;
-use chip8::Chip8;
-use sdf::SDFText;
 
 impl Stage {
     pub fn new(ctx: &mut Context, filename: &str) -> Stage {
@@ -157,72 +116,7 @@ impl EventHandler for Stage {
             self.bindings.images[0].update(ctx, &self.chip.display);
             return;
         }
-
-        // DEBUGGER
-
-        if self.debugger.consume_key(KEY_TERMINATE) {
-            process::exit(0);
-        }
-
-        if self.debugger.consume_key(KEY_GO_FASTER) {
-            self.chip.execution_speed += 0.1;
-            println!("Faster! {}", self.chip.execution_speed);
-        }
-
-        if self.debugger.consume_key(KEY_GO_SLOWER) {
-            self.chip.execution_speed = 0.1;
-            println!("Slower! {}", self.chip.execution_speed);
-        }
-
-        if self.debugger.consume_key(KEY_GO_NORMAL) {
-            self.chip.execution_speed = 1.0;
-            println!("Normal! {}", self.chip.execution_speed);
-        }
-
-        if self.debugger.consume_key(KEY_TOGGLE_PLAY) {
-            self.debugger.is_playing = !self.debugger.is_playing;
-            if self.debugger.is_playing {
-                // Reset timers so that we don't immediately jump ahead
-                self.chip.next_tick = Instant::now();
-                self.chip.next_timers_tick = Instant::now();
-                // TODO: There is a more correct way to resume,
-                //       by getting the duration between the two timers.
-            }
-        }
-
-        if self.debugger.is_playing {
-            self.debugger.states.push(self.chip.clone());
-            self.chip.step_with_time(); // Note: We don't close sub-step states here
-        } else {
-            if self.debugger.consume_key(KEY_STEP_DEBUG) {
-                self.debugger.states.push(self.chip.clone());
-                println!("{:?}", self.debugger.states.last().unwrap());
-                self.chip.step_debug();
-                println!(
-                    "
-----------------------------------------------------------
-Changes:
-{}
-----------------------------------------------------------",
-                    Chip8::compare(self.debugger.states.last().unwrap(), &self.chip)
-                );
-            }
-
-            if self.debugger.key_down(KEY_PLAY_BACKWARD) {
-                if let Some(prev) = self.debugger.states.pop() {
-                    self.chip.clone_from(&prev);
-                }
-            }
-
-            if self.debugger.consume_key(KEY_UNDO_STEP_DEBUG) {
-                if let Some(prev) = self.debugger.states.pop() {
-                    self.chip.clone_from(&prev);
-                    println!("{:?}", self.chip);
-                }
-            }
-        }
-
-        self.bindings.images[0].update(ctx, &self.chip.display);
+        return update(self, ctx);
     }
 
     fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) {
@@ -239,17 +133,14 @@ Changes:
         if let Some(index) = keycode_to_index(keycode) {
             self.chip.keys[index] = true;
         }
-
-        self.debugger.keyboard.insert(keycode, true);
-        self.debugger.consumable_keys.insert(keycode, true);
+        self.debugger.key_down_event(keycode);
     }
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymods: KeyMods) {
         if let Some(index) = keycode_to_index(keycode) {
             self.chip.keys[index] = false;
         }
-        self.debugger.keyboard.insert(keycode, false);
-        self.debugger.consumable_keys.insert(keycode, false);
+        self.debugger.key_up_event(keycode);
     }
 
     fn draw(&mut self, ctx: &mut Context) {
