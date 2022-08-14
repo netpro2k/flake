@@ -83,7 +83,7 @@ fn load_font(filename: &str) -> Result<(RgbaImage, HashMap<char, GlyphInfo>), Fo
 
     let texture_size = Vec2 {
         x: sdf_texture.width() as f32,
-        y: sdf_texture.width() as f32,
+        y: sdf_texture.height() as f32,
     };
 
     let map = data
