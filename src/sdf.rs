@@ -1,4 +1,7 @@
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
+
 use glam::Mat4;
+use image::{EncodableLayout, RgbaImage};
 use miniquad::*;
 
 pub struct SDFText {
@@ -20,14 +23,103 @@ struct GlyphInfo {
     uv_size: Vec2,
 }
 
-fn make_quad(info: GlyphInfo) {
-    #[rustfmt::skip]
-    let vertices: [Vertex; 4] = [
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BMFontJSONGlyphInfo {
+    id: u32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    xoffset: f32,
+    yoffset: f32,
+    xadvance: f32,
+    page: u8,
+    chnl: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct BMFontJSON {
+    pages: Vec<String>,
+    chars: Vec<BMFontJSONGlyphInfo>,
+}
+
+#[derive(Debug)]
+enum FontLoadError {
+    IO(std::io::Error),
+    Parse(serde_json::Error),
+    Image(image::ImageError),
+}
+impl From<std::io::Error> for FontLoadError {
+    fn from(error: std::io::Error) -> Self {
+        FontLoadError::IO(error)
+    }
+}
+impl From<serde_json::Error> for FontLoadError {
+    fn from(error: serde_json::Error) -> Self {
+        FontLoadError::Parse(error)
+    }
+}
+impl From<image::ImageError> for FontLoadError {
+    fn from(error: image::ImageError) -> Self {
+        FontLoadError::Image(error)
+    }
+}
+
+fn load_font(filename: &str) -> Result<(RgbaImage, HashMap<char, GlyphInfo>), FontLoadError> {
+    let reader = BufReader::new(File::open(filename)?);
+    let data: BMFontJSON = serde_json::from_reader(reader)?;
+    let path = match Path::new(filename).parent() {
+        Some(parent) => parent.join(data.pages[0].clone()),
+        None => {
+            return Result::Err(
+                std::io::Error::new(std::io::ErrorKind::NotFound, "filename must be a file").into(),
+            )
+        }
+    };
+
+    let sdf_texture = image::open(path)?;
+
+    let texture_size = Vec2 {
+        x: sdf_texture.width() as f32,
+        y: sdf_texture.width() as f32,
+    };
+
+    let map = data
+        .chars
+        .iter()
+        .map(|info| {
+            let size = Vec2 {
+                x: info.width,
+                y: info.height,
+            };
+            (
+                // TODO nice way to return an error result from this?
+                char::from_u32(info.id).expect("Invalid character id"),
+                GlyphInfo {
+                    size,
+                    uv: Vec2 {
+                        x: info.x / texture_size.x,
+                        y: info.y / texture_size.y,
+                    },
+                    uv_size: size / texture_size,
+                },
+            )
+        })
+        .collect();
+
+    Ok((sdf_texture.into_rgba8(), map))
+}
+
+#[rustfmt::skip]
+fn make_quad(info: &GlyphInfo) -> [Vertex; 4] {
+    [
         Vertex { pos : Vec2::splat(0.0),                uv: Vec2 { x: info.uv.x, y: info.uv.y + info.uv_size.y } },
         Vertex { pos : Vec2 { x:  info.size.x, y: 0. }, uv:  info.uv + info.uv_size  },
         Vertex { pos : info.size,                       uv: Vec2 { x: info.uv.x + info.uv_size.x, y: info.uv.y } },
         Vertex { pos : Vec2 { x: 0., y:  info.size.y},  uv: info.uv },
-    ];
+    ]
 }
 
 impl SDFText {
@@ -43,26 +135,10 @@ impl SDFText {
             shader,
         );
 
-        let sdf_texture = image::open("./assets/roboto-bold.png").unwrap();
+        let (sdf_texture, glyphs) =
+            load_font("./assets/roboto-bold.json").expect("failed to load font");
 
-        let char_pos = Vec2 { x: 212.0, y: 216.0 };
-        let char_size = Vec2 { x: 59.0, y: 62.0 };
-        let texture_size = Vec2 {
-            x: sdf_texture.width() as f32,
-            y: sdf_texture.height() as f32,
-        };
-
-        let uv_pos = char_pos / texture_size;
-        let uv_size = char_size / texture_size;
-        dbg!(uv_size);
-
-        #[rustfmt::skip]
-        let vertices: [Vertex; 4] = [
-            Vertex { pos : Vec2::splat(0.0), uv: Vec2 { x: uv_pos.x, y: uv_pos.y + uv_size.y } },
-            Vertex { pos : Vec2 { x:  char_size.x, y: 0. }, uv:  uv_pos + uv_size  },
-            Vertex { pos : char_size, uv: Vec2 { x: uv_pos.x + uv_size.x, y: uv_pos.y } },
-            Vertex { pos : Vec2 { x: 0., y:  char_size.y}, uv: uv_pos },
-        ];
+        let vertices = make_quad(glyphs.get(&'b').unwrap());
         let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
 
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
