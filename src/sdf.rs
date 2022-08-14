@@ -165,15 +165,19 @@ impl SDFText {
         SDFText { pipeline, bindings }
     }
 
-    pub fn draw(&self, ctx: &mut Context, projection: Mat4) {
+    pub fn draw(&self, ctx: &mut Context, projection: Mat4, view: Mat4) {
         ctx.apply_pipeline(&self.pipeline);
         ctx.apply_bindings(&self.bindings);
         let model = Mat4::from_scale_rotation_translation(
-            Vec3::new(0.1, 0.1, 0.1),
-            Quat::from_rotation_z(std::f32::consts::PI / 4.0),
-            Vec3::new(0.75, 0.5, 0.0),
+            Vec3::splat(1.0),
+            Quat::from_rotation_z(0.0),
+            Vec3::new(0.0, 50.0, 0.0),
         );
-        ctx.apply_uniforms(&shader::Uniforms { projection, model });
+        ctx.apply_uniforms(&shader::Uniforms {
+            model,
+            view,
+            projection,
+        });
         ctx.draw(0, 6, 1);
     }
 }
@@ -189,8 +193,9 @@ mod shader {
             images: vec!["tex".to_string()],
             uniforms: UniformBlockLayout {
                 uniforms: vec![
-                    UniformDesc::new("projection", UniformType::Mat4),
                     UniformDesc::new("model", UniformType::Mat4),
+                    UniformDesc::new("view", UniformType::Mat4),
+                    UniformDesc::new("projection", UniformType::Mat4),
                 ],
             },
         }
@@ -198,7 +203,8 @@ mod shader {
 
     #[repr(C)]
     pub struct Uniforms {
-        pub projection: glam::Mat4,
         pub model: glam::Mat4,
+        pub view: glam::Mat4,
+        pub projection: glam::Mat4,
     }
 }
