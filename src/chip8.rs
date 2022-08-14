@@ -105,7 +105,7 @@ impl Chip8 {
             ));
         }
 
-        return s.join("\n");
+        s.join("\n")
     }
 }
 
@@ -186,10 +186,10 @@ enum Modes {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OpCodes {
     Unkn(u16),
-    CLS,                    // CLS — 00E0
-    RET,                    // RET — 00EE
-    JMP(usize),             // JMP — 1NNN
-    CALL(usize),            // CALL NNN — 2NNN
+    Cls,                    // CLS — 00E0
+    Ret,                    // RET — 00EE
+    Jmp(usize),             // JMP — 1NNN
+    Call(usize),            // CALL NNN — 2NNN
     SeVxNn(usize, u8),      // SE VX, NN — 3XNN
     SneVxNn(usize, u8),     // SNE VX, NN — 4XNN
     SeVxVy(usize, usize),   // SE VX, VY — 5XY0
@@ -239,12 +239,12 @@ impl TryFrom<u16> for OpCodes {
 
         Ok(match v & 0xF000 {
             0x0000 => match v {
-                0x00EE => OpCodes::RET,
-                0x00E0 => OpCodes::CLS,
+                0x00EE => OpCodes::Ret,
+                0x00E0 => OpCodes::Cls,
                 _ => OpCodes::Unkn(v),
             },
-            0x1000 => OpCodes::JMP(nnn),
-            0x2000 => OpCodes::CALL(nnn),
+            0x1000 => OpCodes::Jmp(nnn),
+            0x2000 => OpCodes::Call(nnn),
             0x3000 => OpCodes::SeVxNn(nib1, byte1),
             0x4000 => OpCodes::SneVxNn(nib1, byte1),
             0x5000 => OpCodes::SeVxVy(nib1, nib2),
@@ -332,7 +332,8 @@ impl Chip8 {
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ]);
         let mut file = File::open(filename)?;
-        file.read(&mut self.memory[0x200..])
+        let file_length = file.metadata().unwrap().len() as usize;
+        file.read_exact(&mut self.memory[0x200..0x200 + file_length])
             .expect("Failed to read file");
         Ok(())
     }
@@ -382,7 +383,7 @@ impl Chip8 {
             OpCodes::Unkn(c) => {
                 panic!("Unknwon opcode {}", c);
             }
-            OpCodes::CLS => {
+            OpCodes::Cls => {
                 self.display.fill(0);
             }
             OpCodes::LdINn(n) => {
@@ -403,7 +404,7 @@ impl Chip8 {
                         break; // clip
                     }
                     let line: u8 = self.memory[self.i as usize + dy];
-                    for dx in 0..8 as usize {
+                    for dx in 0..8usize {
                         if (x + dx) >= 64 {
                             break; // clip
                         }
@@ -432,7 +433,7 @@ impl Chip8 {
             OpCodes::AddVxNn(x, n) => {
                 self.v[x] = self.v[x].wrapping_add(n);
             }
-            OpCodes::JMP(n) => {
+            OpCodes::Jmp(n) => {
                 self.pc = n;
             }
             // OpCodes::JmpVxNnn(x, n) => {
@@ -461,11 +462,11 @@ impl Chip8 {
                     self.pc += 2;
                 }
             }
-            OpCodes::CALL(n) => {
+            OpCodes::Call(n) => {
                 self.stack.push(self.pc);
                 self.pc = n;
             }
-            OpCodes::RET => self.pc = self.stack.pop().unwrap(),
+            OpCodes::Ret => self.pc = self.stack.pop().unwrap(),
             OpCodes::LdVxVy(x, y) => {
                 self.v[x] = self.v[y];
             }
@@ -498,14 +499,14 @@ impl Chip8 {
                     self.v[x] = self.v[y];
                 }
                 self.v[0xf] = self.v[x] & 1;
-                self.v[x] = self.v[x] >> 1;
+                self.v[x] >>= 1;
             }
             OpCodes::ShlVxVy(x, y) => {
                 if self.mode == Modes::Chip8 {
                     self.v[x] = self.v[y];
                 }
                 self.v[0xf] = self.v[x] >> 7;
-                self.v[x] = self.v[x] << 1;
+                self.v[x] <<= 1;
             }
             OpCodes::LdIVx(x) => {
                 for dx in 0..x + 1 {
@@ -537,7 +538,7 @@ impl Chip8 {
                 self.i = (self.v[x] * 0x5) as u16;
             }
             OpCodes::AddIVx(x) => {
-                self.i = self.i + self.v[x] as u16;
+                self.i += self.v[x] as u16;
             }
             OpCodes::LdBVx(x) => {
                 self.memory[(self.i as usize)] = self.v[x] / 100;
