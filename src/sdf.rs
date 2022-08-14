@@ -12,6 +12,7 @@ pub struct SDFText {
 use glam::Vec2;
 
 #[repr(C)]
+#[derive(Default, Copy, Clone)]
 struct Vertex {
     pos: Vec2,
     uv: Vec2,
@@ -21,6 +22,8 @@ struct GlyphInfo {
     size: Vec2,
     uv: Vec2,
     uv_size: Vec2,
+    x_advance: f32,
+    offset: Vec2,
 }
 
 use serde::{Deserialize, Serialize};
@@ -40,9 +43,16 @@ struct BMFontJSONGlyphInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+struct BMFontJSONCommon {
+    lineHeight: f32,
+    base: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 struct BMFontJSON {
     pages: Vec<String>,
     chars: Vec<BMFontJSONGlyphInfo>,
+    common: BMFontJSONCommon,
 }
 
 #[derive(Debug)]
@@ -104,6 +114,11 @@ fn load_font(filename: &str) -> Result<(RgbaImage, HashMap<char, GlyphInfo>), Fo
                         y: info.y / texture_size.y,
                     },
                     uv_size: size / texture_size,
+                    x_advance: info.xadvance,
+                    offset: Vec2 {
+                        x: info.xoffset,
+                        y: data.common.base - (size.y + info.yoffset),
+                    },
                 },
             )
         })
@@ -113,13 +128,11 @@ fn load_font(filename: &str) -> Result<(RgbaImage, HashMap<char, GlyphInfo>), Fo
 }
 
 #[rustfmt::skip]
-fn make_quad(info: &GlyphInfo) -> [Vertex; 4] {
-    [
-        Vertex { pos : Vec2::splat(0.0),                uv: Vec2 { x: info.uv.x, y: info.uv.y + info.uv_size.y } },
-        Vertex { pos : Vec2 { x:  info.size.x, y: 0. }, uv:  info.uv + info.uv_size  },
-        Vertex { pos : info.size,                       uv: Vec2 { x: info.uv.x + info.uv_size.x, y: info.uv.y } },
-        Vertex { pos : Vec2 { x: 0., y:  info.size.y},  uv: info.uv },
-    ]
+fn make_quad(info: &GlyphInfo, buf :&mut [Vertex], offset : Vec2) {
+    buf[0] = Vertex { pos : Vec2::splat(0.0) + offset,                uv: Vec2 { x: info.uv.x, y: info.uv.y + info.uv_size.y } };
+    buf[1] =     Vertex { pos : Vec2 { x:  info.size.x, y: 0. } + offset, uv:  info.uv + info.uv_size  };
+    buf[2] =     Vertex { pos : info.size + offset,                       uv: Vec2 { x: info.uv.x + info.uv_size.x, y: info.uv.y } };
+    buf[3] =     Vertex { pos : Vec2 { x: 0., y:  info.size.y} + offset,  uv: info.uv };
 }
 
 impl SDFText {
@@ -138,10 +151,30 @@ impl SDFText {
         let (sdf_texture, glyphs) =
             load_font("./assets/roboto-bold.json").expect("failed to load font");
 
-        let vertices = make_quad(glyphs.get(&'b').unwrap());
+        let text = "AB_CD(123) g Test";
+        let num_chars = text.chars().count();
+        let mut vertices = vec![Default::default(); num_chars * 4];
+
+        let mut x_offset = 0.0;
+        text.chars().enumerate().for_each(|(i, c)| {
+            let info = glyphs.get(&c).unwrap();
+            make_quad(
+                info,
+                &mut vertices[i * 4..i * 4 + 4],
+                Vec2 { x: x_offset, y: 0. } + info.offset,
+            );
+            x_offset += info.x_advance;
+        });
+
         let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
 
-        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+        let mut indices = vec![0; num_chars * 6];
+
+        indices.chunks_exact_mut(6).enumerate().for_each(|(i, v)| {
+            let o: u16 = 4 * i as u16;
+            v.copy_from_slice(&[0, 1, 2, 0, 2, 3].map(|n| n + o));
+        });
+
         let index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
 
         let texture = Texture::from_data_and_format(
@@ -171,14 +204,14 @@ impl SDFText {
         let model = Mat4::from_scale_rotation_translation(
             Vec3::splat(1.0),
             Quat::from_rotation_z(0.0),
-            Vec3::new(0.0, 50.0, 0.0),
+            Vec3::new(50.0, 50.0, 0.0),
         );
         ctx.apply_uniforms(&shader::Uniforms {
             model,
             view,
             projection,
         });
-        ctx.draw(0, 6, 1);
+        ctx.draw(0, self.bindings.index_buffer.size() as i32, 1);
     }
 }
 
