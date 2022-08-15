@@ -43,8 +43,9 @@ struct BMFontJSONGlyphInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct BMFontJSONCommon {
-    lineHeight: f32,
+    line_height: f32,
     base: f32,
 }
 
@@ -135,8 +136,33 @@ fn make_quad(info: &GlyphInfo, buf :&mut [Vertex], offset : Vec2) {
     buf[3] =     Vertex { pos : Vec2 { x: 0., y:  info.size.y} + offset,  uv: info.uv };
 }
 
+fn make_mesh(glyphs: &HashMap<char, GlyphInfo>, text: &str) -> (Vec<Vertex>, Vec<u16>) {
+    let num_chars = text.chars().count();
+    let mut vertices = vec![Default::default(); num_chars * 4];
+
+    let mut x_offset = 0.0;
+    text.chars().enumerate().for_each(|(i, c)| {
+        let info = glyphs.get(&c).unwrap();
+        make_quad(
+            info,
+            &mut vertices[i * 4..i * 4 + 4],
+            Vec2 { x: x_offset, y: 0. } + info.offset,
+        );
+        x_offset += info.x_advance;
+    });
+
+    let mut indices = vec![0; num_chars * 6];
+
+    indices.chunks_exact_mut(6).enumerate().for_each(|(i, v)| {
+        let o: u16 = 4 * i as u16;
+        v.copy_from_slice(&[0, 1, 2, 0, 2, 3].map(|n| n + o));
+    });
+
+    (vertices, indices)
+}
+
 impl SDFText {
-    pub fn new(ctx: &mut Context) -> Self {
+    pub fn new(ctx: &mut Context, text: String) -> Self {
         let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::meta()).unwrap();
         let pipeline = Pipeline::new(
             ctx,
@@ -151,32 +177,6 @@ impl SDFText {
         let (sdf_texture, glyphs) =
             load_font("./assets/roboto-bold.json").expect("failed to load font");
 
-        let text = "AB_CD(123) g Test";
-        let num_chars = text.chars().count();
-        let mut vertices = vec![Default::default(); num_chars * 4];
-
-        let mut x_offset = 0.0;
-        text.chars().enumerate().for_each(|(i, c)| {
-            let info = glyphs.get(&c).unwrap();
-            make_quad(
-                info,
-                &mut vertices[i * 4..i * 4 + 4],
-                Vec2 { x: x_offset, y: 0. } + info.offset,
-            );
-            x_offset += info.x_advance;
-        });
-
-        let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
-
-        let mut indices = vec![0; num_chars * 6];
-
-        indices.chunks_exact_mut(6).enumerate().for_each(|(i, v)| {
-            let o: u16 = 4 * i as u16;
-            v.copy_from_slice(&[0, 1, 2, 0, 2, 3].map(|n| n + o));
-        });
-
-        let index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
-
         let texture = Texture::from_data_and_format(
             ctx,
             sdf_texture.as_bytes(),
@@ -189,13 +189,26 @@ impl SDFText {
             },
         );
 
+        let (vertices, indices) = make_mesh(&glyphs, &text);
+
         let bindings = Bindings {
-            index_buffer,
-            vertex_buffers: vec![vertex_buffer],
+            index_buffer: Buffer::immutable(ctx, BufferType::IndexBuffer, &indices),
+            vertex_buffers: vec![Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices)],
             images: vec![texture],
         };
 
-        SDFText { pipeline, bindings }
+        SDFText {
+            pipeline,
+            bindings,
+            glyphs,
+        }
+    }
+
+    pub fn update_text(&mut self, ctx: &mut Context, text: String) {
+        let (vertices, indices) = make_mesh(&self.glyphs, &text);
+        self.bindings.index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
+        self.bindings.vertex_buffers =
+            vec![Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices)];
     }
 
     pub fn draw(&self, ctx: &mut Context, projection: Mat4, view: Mat4) {

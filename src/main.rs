@@ -30,7 +30,8 @@ impl Stage {
         //     .expect("Failed to load file");
         chip.load(filename).expect("Failed to load file");
 
-        let text = SDFText::new(ctx);
+        let mut text = SDFText::new(ctx, "Hello World".to_string());
+        text.update_text(ctx, "Goodbye World".to_string());
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
