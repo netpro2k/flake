@@ -1,12 +1,13 @@
-use std::{collections::HashMap, fs::File, io::BufReader, ops::Mul, path::Path};
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
 
-use glam::{Mat4, Quat, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec3};
 use image::{EncodableLayout, RgbaImage};
 use miniquad::*;
 
 pub struct SDFText {
     pipeline: Pipeline,
     bindings: Bindings,
+    glyphs: HashMap<char, GlyphInfo>,
 }
 
 use glam::Vec2;

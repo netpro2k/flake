@@ -2,8 +2,8 @@ mod chip8;
 mod debugger;
 mod sdf;
 use chip8::Chip8;
-use debugger::{update, Debugger};
-use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
+use debugger::Debugger;
+use glam::{Mat4, Quat, Vec2, Vec3};
 use miniquad::*;
 use sdf::SDFText;
 
@@ -117,7 +117,7 @@ impl EventHandler for Stage {
             self.bindings.images[0].update(ctx, &self.chip.display);
             return;
         }
-        return update(self, ctx);
+        debugger::update(self, ctx);
     }
 
     fn resize_event(&mut self, _ctx: &mut Context, width: f32, height: f32) {
