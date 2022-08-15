@@ -171,7 +171,7 @@ fn make_mesh(glyphs: &HashMap<char, GlyphInfo>, text: &str) -> (Vec<Vertex>, Vec
 impl SDFFont {
     pub fn new(ctx: &mut Context) -> Self {
         let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::meta()).unwrap();
-        let pipeline = Pipeline::new(
+        let pipeline = Pipeline::with_params(
             ctx,
             &[BufferLayout::default()],
             &[
@@ -179,6 +179,14 @@ impl SDFFont {
                 VertexAttribute::new("uv", VertexFormat::Float2),
             ],
             shader,
+            PipelineParams {
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceColor),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
         );
 
         let (sdf_texture, glyphs) =

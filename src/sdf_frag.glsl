@@ -19,4 +19,5 @@ void main() {
     vec3 ch = vec3(c,c,c);
     float outline = cubicPulse(0.5, 0.1, d);
     gl_FragColor.rgb = mix(ch, vec3(1.,0.,0.), outline);
+    gl_FragColor.a = c;
 }
