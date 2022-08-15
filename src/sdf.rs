@@ -1,13 +1,19 @@
-use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path, rc::Rc};
 
 use glam::{Mat4, Quat, Vec3};
 use image::{EncodableLayout, RgbaImage};
 use miniquad::*;
 
 pub struct SDFText {
-    pipeline: Pipeline,
     bindings: Bindings,
+    font: Rc<SDFFont>,
+    pub model: Mat4,
+}
+
+pub struct SDFFont {
+    pipeline: Pipeline,
     glyphs: HashMap<char, GlyphInfo>,
+    texture: Texture,
 }
 
 use glam::Vec2;
@@ -132,9 +138,9 @@ fn load_font(filename: &str) -> Result<(RgbaImage, HashMap<char, GlyphInfo>), Fo
 #[rustfmt::skip]
 fn make_quad(info: &GlyphInfo, buf :&mut [Vertex], offset : Vec2) {
     buf[0] = Vertex { pos : Vec2::splat(0.0) + offset,                uv: Vec2 { x: info.uv.x, y: info.uv.y + info.uv_size.y } };
-    buf[1] =     Vertex { pos : Vec2 { x:  info.size.x, y: 0. } + offset, uv:  info.uv + info.uv_size  };
-    buf[2] =     Vertex { pos : info.size + offset,                       uv: Vec2 { x: info.uv.x + info.uv_size.x, y: info.uv.y } };
-    buf[3] =     Vertex { pos : Vec2 { x: 0., y:  info.size.y} + offset,  uv: info.uv };
+    buf[1] = Vertex { pos : Vec2 { x:  info.size.x, y: 0. } + offset, uv:  info.uv + info.uv_size  };
+    buf[2] = Vertex { pos : info.size + offset,                       uv: Vec2 { x: info.uv.x + info.uv_size.x, y: info.uv.y } };
+    buf[3] = Vertex { pos : Vec2 { x: 0., y:  info.size.y} + offset,  uv: info.uv };
 }
 
 fn make_mesh(glyphs: &HashMap<char, GlyphInfo>, text: &str) -> (Vec<Vertex>, Vec<u16>) {
@@ -162,8 +168,8 @@ fn make_mesh(glyphs: &HashMap<char, GlyphInfo>, text: &str) -> (Vec<Vertex>, Vec
     (vertices, indices)
 }
 
-impl SDFText {
-    pub fn new(ctx: &mut Context, text: String) -> Self {
+impl SDFFont {
+    pub fn new(ctx: &mut Context) -> Self {
         let shader = Shader::new(ctx, shader::VERTEX, shader::FRAGMENT, shader::meta()).unwrap();
         let pipeline = Pipeline::new(
             ctx,
@@ -190,38 +196,48 @@ impl SDFText {
             },
         );
 
-        let (vertices, indices) = make_mesh(&glyphs, &text);
+        SDFFont {
+            pipeline,
+            glyphs,
+            texture,
+        }
+    }
+}
+
+impl SDFText {
+    pub fn new(ctx: &mut GraphicsContext, font: Rc<SDFFont>, text: &str) -> SDFText {
+        let (vertices, indices) = make_mesh(&font.glyphs, text);
 
         let bindings = Bindings {
             index_buffer: Buffer::immutable(ctx, BufferType::IndexBuffer, &indices),
             vertex_buffers: vec![Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices)],
-            images: vec![texture],
+            images: vec![font.texture],
         };
 
+        let model = Mat4::from_scale_rotation_translation(
+            Vec3::splat(1.0),
+            Quat::from_rotation_z(0.0),
+            Vec3::new(50.0, 50.0, 0.0),
+        );
+
         SDFText {
-            pipeline,
             bindings,
-            glyphs,
+            font,
+            model,
         }
     }
-
     pub fn update_text(&mut self, ctx: &mut Context, text: String) {
-        let (vertices, indices) = make_mesh(&self.glyphs, &text);
+        let (vertices, indices) = make_mesh(&self.font.glyphs, &text);
         self.bindings.index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
         self.bindings.vertex_buffers =
             vec![Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices)];
     }
 
     pub fn draw(&self, ctx: &mut Context, projection: Mat4, view: Mat4) {
-        ctx.apply_pipeline(&self.pipeline);
+        ctx.apply_pipeline(&self.font.pipeline);
         ctx.apply_bindings(&self.bindings);
-        let model = Mat4::from_scale_rotation_translation(
-            Vec3::splat(1.0),
-            Quat::from_rotation_z(0.0),
-            Vec3::new(50.0, 50.0, 0.0),
-        );
         ctx.apply_uniforms(&shader::Uniforms {
-            model,
+            model: self.model,
             view,
             projection,
         });

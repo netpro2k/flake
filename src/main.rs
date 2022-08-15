@@ -1,11 +1,13 @@
 mod chip8;
 mod debugger;
 mod sdf;
+use std::rc::Rc;
+
 use chip8::Chip8;
 use debugger::Debugger;
 use glam::{Mat4, Quat, Vec2, Vec3};
 use miniquad::*;
-use sdf::SDFText;
+use sdf::{SDFFont, SDFText};
 
 #[repr(C)]
 struct Vertex {
@@ -20,6 +22,7 @@ pub struct Stage {
     size: (i32, i32),
     debugger: Debugger,
     text_test: SDFText,
+    text_test_2: SDFText,
 }
 
 impl Stage {
@@ -29,9 +32,6 @@ impl Stage {
         // chip.load("roms/test_opcode.ch8")
         //     .expect("Failed to load file");
         chip.load(filename).expect("Failed to load file");
-
-        let mut text = SDFText::new(ctx, "Hello World".to_string());
-        text.update_text(ctx, "Goodbye World".to_string());
 
         #[rustfmt::skip]
         let vertices: [Vertex; 4] = [
@@ -76,14 +76,37 @@ impl Stage {
             shader,
         );
 
-        Stage {
-            pipeline,
-            bindings,
-            chip,
-            size: (1200, 600),
-            debugger: Debugger::new(),
-            text_test: text,
-        }
+        let stage = {
+            let font = Rc::new(SDFFont::new(ctx));
+
+            let mut text = SDFText::new(ctx, font.clone(), "Hello World");
+            text.update_text(ctx, "Goodbye World".to_string());
+
+            let mut text2 = SDFText::new(ctx, font.clone(), "Hello World");
+            text2.model *= Mat4::from_translation(Vec3 {
+                x: 0.,
+                y: 100.,
+                z: 0.,
+            });
+
+            dbg!(Rc::strong_count(&font)); // 3
+
+            // dbg!(Rc::strong_count(&text.font)); // 3, not pub
+
+            Stage {
+                pipeline,
+                bindings,
+                chip,
+                size: (1200, 600),
+                debugger: Debugger::new(),
+                text_test: text,
+                text_test_2: text2,
+            }
+        };
+
+        // dbg!(Rc::strong_count(&stage.text_test.font)); // 2, not pub
+
+        stage
     }
 }
 
@@ -152,12 +175,7 @@ impl EventHandler for Stage {
         let window_width = width as f32;
         let window_height = height as f32;
 
-        // vertex x : 0   -> 64
-        // 0/window_width -> 64/window_width
-        // left: 0        -> right: window_width
-        //             -1 -> 1
-
-        let projection = Mat4::orthographic_rh_gl(0., window_width, 0., window_height, 1.0, -1.0);
+        let projection = Mat4::orthographic_rh_gl(0., window_width, 0., window_height, 10.0, -10.0);
         let view = Mat4::from_scale_rotation_translation(
             Vec3 {
                 x: 1.,
@@ -190,6 +208,7 @@ impl EventHandler for Stage {
         ctx.draw(0, 6, 1);
 
         self.text_test.draw(ctx, projection, view);
+        self.text_test_2.draw(ctx, projection, view);
 
         ctx.end_render_pass();
 
