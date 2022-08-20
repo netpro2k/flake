@@ -253,11 +253,8 @@ fn main() {
             ..Default::default()
         },
         move |ctx| {
-            if let Some(filename) = args.get(1) {
-                Box::new(Stage::new(ctx, filename))
-            } else {
-                Box::new(Stage::new(ctx, "roms/breakout.ch8"))
-            }
+            let default = &String::from("roms/breakout.ch8");
+            Box::new(Stage::new(ctx, args.get(1).unwrap_or(default)))
         },
     );
 }
