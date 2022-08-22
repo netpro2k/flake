@@ -1,12 +1,12 @@
-use std::{collections::HashMap, fs::File, io::BufReader, path::Path, rc::Rc};
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
 
 use glam::{Mat4, Quat, Vec3};
 use image::{EncodableLayout, RgbaImage};
 use miniquad::*;
 
-pub struct SDFText {
+pub struct SDFText<'a> {
     bindings: Bindings,
-    font: Rc<SDFFont>,
+    font: &'a SDFFont,
     pub model: Mat4,
 }
 
@@ -205,15 +205,15 @@ impl SDFFont {
         );
 
         SDFFont {
-            pipeline,
             glyphs,
+            pipeline,
             texture,
         }
     }
 }
 
-impl SDFText {
-    pub fn new(ctx: &mut GraphicsContext, font: Rc<SDFFont>, text: &str) -> SDFText {
+impl<'a> SDFText<'a> {
+    pub fn new(ctx: &mut GraphicsContext, font: &'a SDFFont, text: &str) -> SDFText<'a> {
         let (vertices, indices) = make_mesh(&font.glyphs, text);
 
         let bindings = Bindings {

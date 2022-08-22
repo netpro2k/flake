@@ -1,7 +1,6 @@
 mod chip8;
 mod debugger;
 mod sdf;
-use std::rc::Rc;
 
 use chip8::Chip8;
 use debugger::Debugger;
@@ -15,18 +14,18 @@ struct Vertex {
     uv: Vec2,
 }
 
-pub struct Stage {
+pub struct Stage<'a> {
     pipeline: Pipeline,
     bindings: Bindings,
     chip: Chip8,
     size: (i32, i32),
     debugger: Debugger,
-    text_test: SDFText,
-    text_test_2: SDFText,
+    text_test: SDFText<'a>,
+    text_test_2: SDFText<'a>,
 }
 
-impl Stage {
-    pub fn new(ctx: &mut Context, filename: &str) -> Stage {
+impl<'a> Stage<'a> {
+    pub fn new(ctx: &mut Context, filename: &str, font: &'a SDFFont) -> Stage<'a> {
         let mut chip = Chip8::new();
         chip.execution_speed = 1.0;
         // chip.load("roms/test_opcode.ch8")
@@ -77,21 +76,15 @@ impl Stage {
         );
 
         let stage = {
-            let font = Rc::new(SDFFont::new(ctx));
-
-            let mut text = SDFText::new(ctx, font.clone(), "Hello World");
+            let mut text = SDFText::new(ctx, font, "Hello World");
             text.update_text(ctx, "Goodbye World".to_string());
 
-            let mut text2 = SDFText::new(ctx, font.clone(), "Hello World");
+            let mut text2 = SDFText::new(ctx, font, "Hello World");
             text2.model *= Mat4::from_translation(Vec3 {
                 x: 0.,
                 y: 100.,
                 z: 0.,
             });
-
-            dbg!(Rc::strong_count(&font)); // 3
-
-            // dbg!(Rc::strong_count(&text.font)); // 3, not pub
 
             Stage {
                 pipeline,
@@ -103,8 +96,6 @@ impl Stage {
                 text_test_2: text2,
             }
         };
-
-        // dbg!(Rc::strong_count(&stage.text_test.font)); // 2, not pub
 
         stage
     }
@@ -132,7 +123,7 @@ fn keycode_to_index(keycode: KeyCode) -> Option<usize> {
     }
 }
 
-impl EventHandler for Stage {
+impl EventHandler for Stage<'_> {
     fn update(&mut self, ctx: &mut Context) {
         // return;
         if !self.debugger.is_enabled {
@@ -245,6 +236,7 @@ mod shader {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
     miniquad::start(
         conf::Conf {
             window_title: "Flake".to_string(),
@@ -253,8 +245,9 @@ fn main() {
             ..Default::default()
         },
         move |ctx| {
+            let font = Box::leak(Box::new(SDFFont::new(ctx)));
             let default = &String::from("roms/breakout.ch8");
-            Box::new(Stage::new(ctx, args.get(1).unwrap_or(default)))
+            Box::new(Stage::new(ctx, args.get(1).unwrap_or(default), font))
         },
     );
 }
